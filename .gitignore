@@ -1,0 +1,17 @@
+.venv/
+backend/.venv/
+
+.env
+backend/.env
+
+__pycache__/
+*.pyc
+
+.pytest_cache/
+
+node_modules/
+dist/
+
+backend/data/raw/*.pdf
+
+*.log

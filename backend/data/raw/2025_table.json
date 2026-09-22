@@ -1,0 +1,232 @@
+[
+  {
+    "firm": "Russel Gerrity",
+    "firm_normalized": "russel gerrity",
+    "date": "19/12/2025",
+    "amount_text": "£309,843",
+    "amount": 309843.0,
+    "reason": "This Final Notice refers to breaches of market abuse related to Market Abuse Regulation. We imposed a financial penalty.",
+    "url": "https://www.fca.org.uk/publication/final-notices/russel-gerrity-2025.pdf",
+    "year": 2025
+  },
+  {
+    "firm": "Nationwide Building Society",
+    "firm_normalized": "nationwide building society",
+    "date": "11/12/2025",
+    "amount_text": "£44,078,500",
+    "amount": 44078500.0,
+    "reason": "This Final Notice refers to breaches of Principle 3, and associated breaches of SYSC rules 6.1.1R and 6.3.1R pursuant to section 206 of the Act. We imposed a financial penalty.",
+    "url": "https://www.fca.org.uk/news/press-releases/fca-fines-nationwide-44m-failings-financial-crime-controls",
+    "year": 2025
+  },
+  {
+    "firm": "Luke Coleman",
+    "firm_normalized": "luke coleman",
+    "date": "29/10/2025",
+    "amount_text": "Court fine: £922",
+    "amount": 922.0,
+    "reason": "Luke Coleman pleaded guilty to unlawfully obtaining and the subsequent disclosure of personal data in breach of the Data Protection Act, following a prosecution by the FCA. A fine is the maximum penalty for this type of offence. Coleman was fined £384. He was ordered to pay a £38 surcharge and prosecution costs contribution of £500.",
+    "url": "https://www.fca.org.uk/news/press-releases/individual-convicted-and-fined-data-protection-breach",
+    "year": 2025
+  },
+  {
+    "firm": "Neil Dwane",
+    "firm_normalized": "neil dwane",
+    "date": "13/10/2025",
+    "amount_text": "£100,281",
+    "amount": 100281.0,
+    "reason": "This Final Notice refers to breaches of market abuse related to Market Abuse Regulation in the Issuer sector. We imposed a financial penalty and prohibition.",
+    "url": "https://www.fca.org.uk/news/press-releases/fca-bans-and-fines-advisor-insider-dealing",
+    "year": 2025
+  },
+  {
+    "firm": "Nicholas Harper",
+    "firm_normalized": "nicholas harper",
+    "date": "19/09/2025",
+    "amount_text": "Court fine: £130",
+    "amount": 130.0,
+    "reason": "Nicholas Harper pleaded guilty to encouraging or assisting an offence to be committed in breach of the Data Protection Act. Harper was fined £100 and ordered to pay a £30 victim surcharge for the data protection breach.",
+    "url": "https://www.fca.org.uk/news/press-releases/individual-fined-data-protection-breach-and-acquitted-fraud-offence",
+    "year": 2025
+  },
+  {
+    "firm": "Poojan Sheth",
+    "firm_normalized": "poojan sheth",
+    "date": "5/08/2025",
+    "amount_text": "£57,600",
+    "amount": 57600.0,
+    "reason": "This Final Notice refers to breaches of Market Abuse Regulations and Financial Services and Markets Act 2000 related to market abuse, market manipulation, failing to act with integrity and lack of fitness/propriety in the investment bank sector. We imposed a financial penalty and a prohibition.",
+    "url": "https://www.fca.org.uk/publication/final-notices/poojan-sheth-2025.pdf",
+    "year": 2025
+  },
+  {
+    "firm": "Jorge Lopez Gonzalez",
+    "firm_normalized": "jorge lopez gonzalez",
+    "date": "5/08/2025",
+    "amount_text": "£100,000",
+    "amount": 100000.0,
+    "reason": "This Final Notice refers to breaches of Market Abuse Regulations and Financial Services and Markets Act 2000 related to market abuse, market manipulation, failing to act with integrity and lack of fitness/propriety in the investment bank sector. We imposed a financial penalty and a prohibition.",
+    "url": "https://www.fca.org.uk/publication/final-notices/jorge-lopez-gonzalez-2025.pdf",
+    "year": 2025
+  },
+  {
+    "firm": "Diego Urra",
+    "firm_normalized": "diego urra",
+    "date": "5/08/2025",
+    "amount_text": "£223,400",
+    "amount": 223400.0,
+    "reason": "This Final Notice refers to breaches of Market Abuse Regulations and Financial Services and Markets Act 2000 related to market abuse, market manipulation, failing to act with integrity and lack of fitness/propriety in the investment bank sector. We imposed a financial penalty and a prohibition.",
+    "url": "https://www.fca.org.uk/publication/final-notices/diego-urra-2025.pdf",
+    "year": 2025
+  },
+  {
+    "firm": "Sigma Broking Limited",
+    "firm_normalized": "sigma broking limited",
+    "date": "29/07/2025",
+    "amount_text": "£1,087,300",
+    "amount": 1087300.0,
+    "reason": "This Final Notice refers to breaches of PRIN 3 and MiFIR related to transaction reporting in the trading firm sector. We imposed a financial penalty.",
+    "url": "https://www.fca.org.uk/publication/final-notices/sigma-broking-limited-2025.pdf",
+    "year": 2025
+  },
+  {
+    "firm": "Jean-Noel Alba",
+    "firm_normalized": "jean-noel alba",
+    "date": "25/07/2025",
+    "amount_text": "£1,049,500",
+    "amount": 1049500.0,
+    "reason": "This Final Notice has breaches of APER 1 and 4 and Individual Conduct Rule 1 and 3 (not acting with integrity/dealing with us openly) with a prohibition and fine.",
+    "url": "https://www.fca.org.uk/publication/final-notices/jean-noel-alba-2025.pdf",
+    "year": 2025
+  },
+  {
+    "firm": "James Edward Staley",
+    "firm_normalized": "james edward staley",
+    "date": "23/07/2025",
+    "amount_text": "£1,107,306.92",
+    "amount": 1107306.92,
+    "reason": "We issued a Final Notice following the Upper Tribunal’s decision dated 26 June 2025 (upholding our Decision Notice of 30 May 2023 which sought to fine and ban Mr Staley). This Final Notice refers to breaches of Individual Conduct Rules 1 (not acting with integrity) and 3 (open and cooperative with regulators) and Senior Manager Conduct Rule 4 (disclosure of information of which the FCA would reasonably expect notice. We imposed a financial penalty and a prohibition from holding senior management functions.",
+    "url": "https://www.fca.org.uk/publication/final-notices/james-edward-staley-2025.pdf",
+    "year": 2025
+  },
+  {
+    "firm": "Barclays Bank UK plc",
+    "firm_normalized": "barclays bank uk plc",
+    "date": "14/07/2025",
+    "amount_text": "£3,093,600",
+    "amount": 3093600.0,
+    "reason": "A final notice has been issued in relation to Barclays Bank UK plc because it breached Principle 3 and SYSC 6.1.1R by failing to organise and control its affairs responsibly and effectively with adequate risk management systems in respect of its account opening procedures for client money accounts.",
+    "url": "https://www.fca.org.uk/publication/final-notices/barclays-bank-uk-plc-2025.pdf",
+    "year": 2025
+  },
+  {
+    "firm": "Barclays Bank plc",
+    "firm_normalized": "barclays bank plc",
+    "date": "14/07/2025",
+    "amount_text": "£39,314,700",
+    "amount": 39314700.0,
+    "reason": "This Final Notice refers to a breach of Principle 2 (skill, care and diligence) of the Authority’s Principles for Businesses that occurred between 9 January 2015 and 23 April 2021. Barclays’ breach relates to its failures to identify, assess, monitor and manage adequately the money laundering risks associated with the provision of banking services to one of its corporate banking customers.",
+    "url": "https://www.fca.org.uk/publication/final-notices/barclays-bank-plc-2025.pdf",
+    "year": 2025
+  },
+  {
+    "firm": "Markos Theodosi Markou",
+    "firm_normalized": "markos theodosi markou",
+    "date": "10/07/2025",
+    "amount_text": "£10,000",
+    "amount": 10000.0,
+    "reason": "We issued a Final Notice following the Supreme Court’s rejection of Mr Markou's application to appeal the Court of Appeal’s judgment dated 17 December 2024. This Final Notice refers to a breach of Statement of Principle 1 (Integrity) of the Authority’s Statements of Principle and Code of Practice for Approved Persons in the Mortgages sector. We imposed a financial penalty of £10,000 and a prohibition.",
+    "url": "https://www.fca.org.uk/publication/final-notices/markos-theodosi-markou-2025.pdf",
+    "year": 2025
+  },
+  {
+    "firm": "Monzo Bank Limited",
+    "firm_normalized": "monzo bank limited",
+    "date": "8/07/2025",
+    "amount_text": "£21,091,300",
+    "amount": 21091300.0,
+    "reason": "This Final Notice refers to breaches of PRIN 3 and s.55L of FSMA related to conduct in the retail banks sector. We imposed a financial penalty.",
+    "url": "https://www.fca.org.uk/publication/final-notices/monzo-bank-limited.pdf",
+    "year": 2025
+  },
+  {
+    "firm": "Craig Donaldson",
+    "firm_normalized": "craig donaldson",
+    "date": "2/07/2025",
+    "amount_text": "£167,325",
+    "amount": 167325.0,
+    "reason": "This Final Notice refers to being knowingly concerned in contravention of Listing Rule 1.3.3R. We imposed a financial penalty.",
+    "url": "https://www.fca.org.uk/publication/final-notices/craig-donaldson-2025.pdf",
+    "year": 2025
+  },
+  {
+    "firm": "David Arden",
+    "firm_normalized": "david arden",
+    "date": "2/07/2025",
+    "amount_text": "£100,950",
+    "amount": 100950.0,
+    "reason": "This Final Notice refers to being knowingly concerned in contravention of Listing Rule 1.3.3R. We imposed a financial penalty.",
+    "url": "https://www.fca.org.uk/publication/final-notices/david-arden.2025.pdf",
+    "year": 2025
+  },
+  {
+    "firm": "Toni Fox",
+    "firm_normalized": "toni fox",
+    "date": "30/05/2025",
+    "amount_text": "£567,584",
+    "amount": 567584.0,
+    "reason": "This Final Notice refers to breaches of PRIN 1 and the provision of inappropriate pension transfer advice. We imposed a financial penalty, withdrawal of approvals and a prohibition order.",
+    "url": "https://www.fca.org.uk/publication/final-notices/toni-fox-2025.pdf",
+    "year": 2025
+  },
+  {
+    "firm": "David Brian Price",
+    "firm_normalized": "david brian price",
+    "date": "30/05/2025",
+    "amount_text": "£465,415",
+    "amount": 465415.0,
+    "reason": "This Final Notice refers to breaches of PRIN 1 and the provision of inappropriate pension transfer advice. We imposed a financial penalty, withdrawal of approvals and a prohibition order.",
+    "url": "https://www.fca.org.uk/publication/final-notices/david-brian-price-2025.pdf",
+    "year": 2025
+  },
+  {
+    "firm": "The London Metal Exchange (RIE)",
+    "firm_normalized": "the london metal exchange (rie)",
+    "date": "20/03/2025",
+    "amount_text": "£9,245,900",
+    "amount": 9245900.0,
+    "reason": "This Final Notice refers to breaches of REC 2.5.1 paragraph 3(1) and 3(2)(h) and Article 18(3)(a) and (4) of MiFID RTS 7, relating to wholesale conduct in the Recognised Investment Exchanges sector. We imposed a financial penalty of £9.2 million which included a 30% early settlement discount.",
+    "url": "https://www.fca.org.uk/publication/final-notices/london-metal-exchange-2025.pdf",
+    "year": 2025
+  },
+  {
+    "firm": "Mako Financial Markets Partnership LLP",
+    "firm_normalized": "mako financial markets partnership llp",
+    "date": "17/02/2025",
+    "amount_text": "£1,662,700",
+    "amount": 1662700.0,
+    "reason": "This Final Notice refers to breaches of PRIN 2 and PRIN 3 related to the risk of financial crime in the trading firm sector. We imposed a financial penalty.",
+    "url": "https://www.fca.org.uk/publication/final-notices/mako-financial-markets-partnership-llp-2025.pdf",
+    "year": 2025
+  },
+  {
+    "firm": "Infinox Capital Limited",
+    "firm_normalized": "infinox capital limited",
+    "date": "27/01/2025",
+    "amount_text": "£99,200",
+    "amount": 99200.0,
+    "reason": "This Final Notice refers to breaches of Article 26(1) of MiFIR related to a failure to report transactions in the trading firm sector. We imposed a financial penalty.",
+    "url": "https://www.fca.org.uk/publication/final-notices/infinox-2025.pdf",
+    "year": 2025
+  },
+  {
+    "firm": "Arian Financial LLP",
+    "firm_normalized": "arian financial llp",
+    "date": "9/01/2025",
+    "amount_text": "£288,962.53",
+    "amount": 288962.53,
+    "reason": "This Final Notice refers to breaches of PRIN 2 and PRIN 3 related to the risk of financial crime in the trading firm sector. This case was referred to the Upper Tribunal and a judgment was issued on 11 November 2024. We imposed a financial penalty.",
+    "url": "https://www.fca.org.uk/publication/final-notices/arian-financial-llp-2025.pdf",
+    "year": 2025
+  }
+]

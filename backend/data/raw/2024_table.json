@@ -1,0 +1,272 @@
+[
+  {
+    "firm": "Philip Pryke",
+    "firm_normalized": "philip pryke",
+    "date": "28/11/2024",
+    "amount_text": "£1,377,968",
+    "amount": 1377968.0,
+    "reason": "This Final Notice refers to breaches of APER 1 and FIT related to the provision of unsuitable pension transfer advice in the pensions sector. We imposed a prohibition and a financial penalty.",
+    "url": "https://www.fca.org.uk/publication/final-notices/philip-pryke-2024.pdf",
+    "year": 2024
+  },
+  {
+    "firm": "András Sebők",
+    "firm_normalized": "andrás sebők",
+    "date": "26/11/2024",
+    "amount_text": "£123,500",
+    "amount": 123500.0,
+    "reason": "This Final Notice refers to breaches of the Market Abuse Regulations by a PDMR for trading during closed periods and for trade disclosure failings.",
+    "url": "https://www.fca.org.uk/publication/final-notices/andras-sebok-2024.pdf",
+    "year": 2024
+  },
+  {
+    "firm": "Barclays Bank plc",
+    "firm_normalized": "barclays bank plc",
+    "date": "25/11/2024",
+    "amount_text": "£10,000,000",
+    "amount": 10000000.0,
+    "reason": "This Final Notice refers to breaches of listing rules relating to failure to disclose information in the issuer sector. We imposed a financial penalty.",
+    "url": "https://www.fca.org.uk/publication/final-notices/barclays-bank-plc-2024.pdf",
+    "year": 2024
+  },
+  {
+    "firm": "Barclays plc",
+    "firm_normalized": "barclays plc",
+    "date": "25/11/2024",
+    "amount_text": "£30,000,000",
+    "amount": 30000000.0,
+    "reason": "This Final Notice refers to breaches of listing rules relating to failure to disclose information in the issuer sector. We imposed a financial penalty.",
+    "url": "https://www.fca.org.uk/publication/final-notices/barclays-plc-2024.pdf",
+    "year": 2024
+  },
+  {
+    "firm": "Macquarie Bank Limited - London Branch",
+    "firm_normalized": "macquarie bank limited - london branch",
+    "date": "18/11/2024",
+    "amount_text": "£13,031,400",
+    "amount": 13031400.0,
+    "reason": "This Final Notice refers to breach of PRIN 3 related to wholesale conduct in the investment bank sector. We imposed a financial penalty of £13,031,400.",
+    "url": "https://www.fca.org.uk/publication/final-notices/macquarie-bank-limited-london-branch-2024.pdf",
+    "year": 2024
+  },
+  {
+    "firm": "Craig Buchan",
+    "firm_normalized": "craig buchan",
+    "date": "14/11/2024",
+    "amount_text": "£6,037",
+    "amount": 6037.0,
+    "reason": "This Final Notice refers to breaches of COCON 2.2.1R related to failing to act with integrity in the Investment Adviser sector. We imposed a financial penalty and prohibition.",
+    "url": "https://www.fca.org.uk/publication/final-notices/craig-buchan-2024.pdf",
+    "year": 2024
+  },
+  {
+    "firm": "Martin Paul Cooke",
+    "firm_normalized": "martin paul cooke",
+    "date": "14/11/2024",
+    "amount_text": "£6,020",
+    "amount": 6020.0,
+    "reason": "This Final Notice refers to breaches of COCON 2.2.1R related to failing to act with integrity in the Investment Adviser sector. We imposed a financial penalty and prohibition.",
+    "url": "https://www.fca.org.uk/publication/final-notices/martin-paul-cooke-2024.pdf",
+    "year": 2024
+  },
+  {
+    "firm": "Metro Bank plc",
+    "firm_normalized": "metro bank plc",
+    "date": "12/11/2024",
+    "amount_text": "£16,675,200",
+    "amount": 16675200.0,
+    "reason": "This Final Notice refers to breaches of PRIN 3 and associated SYSC rules relating to a lack of systems and controls concerning financial crime in the retail bank sector. We imposed a financial penalty.",
+    "url": "https://www.fca.org.uk/news/press-releases/fca-fines-metro-bank-16m-financial-crime-failings",
+    "year": 2024
+  },
+  {
+    "firm": "Leigh Mackey",
+    "firm_normalized": "leigh mackey",
+    "date": "11/11/2024",
+    "amount_text": "£1,102,879",
+    "amount": 1102879.0,
+    "reason": "This Final Notice refers to breaches of APER 1, APER 4 and COCON related to failing to act with integrity and failing to be open and co-operative in the General Insurance and Protection sector. We imposed a financial penalty and prohibition.",
+    "url": "https://www.fca.org.uk/publication/final-notices/leigh-mackey-2024.pdf",
+    "year": 2024
+  },
+  {
+    "firm": "Kristo Käärmann",
+    "firm_normalized": "kristo käärmann",
+    "date": "27/10/2024",
+    "amount_text": "£350,000",
+    "amount": 350000.0,
+    "reason": "This Final Notice refers to a breach of COCON 2.2.4R SC4, related to Kristo Käärmann’s failure to disclose appropriately information to the Authority. We imposed a financial penalty.",
+    "url": "https://www.fca.org.uk/publication/final-notices/kristo-kaarmann-2024.pdf",
+    "year": 2024
+  },
+  {
+    "firm": "Volkswagen Financial Services (UK) Limited",
+    "firm_normalized": "volkswagen financial services (uk) limited",
+    "date": "21/10/2024",
+    "amount_text": "£5,397,600",
+    "amount": 5397600.0,
+    "reason": "This Final Notice refers to breaches of PRIN 3, 6, 7, CONC and DISP, all of which related to the treatment of customers in financial difficulty in the consumer credit sector. We imposed a financial penalty of £5,397,600.",
+    "url": "https://www.fca.org.uk/news/press-releases/fca-fines-volkswagen-finance-over-treatment-customers-financial-difficulty",
+    "year": 2024
+  },
+  {
+    "firm": "TSB Bank plc",
+    "firm_normalized": "tsb bank plc",
+    "date": "9/10/2024",
+    "amount_text": "£10,910,500",
+    "amount": 10910500.0,
+    "reason": "This Final Notice refers to the breaches of PRIN 3 and 6 related to the unfair treatment of customers in the retail bank, mortgage and consumer credit sectors. We imposed a financial penalty of £10,910,500.",
+    "url": "https://www.fca.org.uk/news/press-releases/fca-fines-tsb-over-treatment-customers-financial-difficulty",
+    "year": 2024
+  },
+  {
+    "firm": "Starling Bank Limited",
+    "firm_normalized": "starling bank limited",
+    "date": "27/09/2024",
+    "amount_text": "£28,959,426",
+    "amount": 28959426.0,
+    "reason": "This Final Notice refers to breaches of Principle 3 and s.204A of FSMA relating to financial crime and breaching the conditions of a Voluntary Requirement (VREQ) in the retail banks sector. We imposed a financial penalty.",
+    "url": "https://www.fca.org.uk/news/press-releases/fca-fines-starling-bank-failings-financial-crime-systems-and-controls",
+    "year": 2024
+  },
+  {
+    "firm": "Alec John Cuthbert",
+    "firm_normalized": "alec john cuthbert",
+    "date": "30/08/2024",
+    "amount_text": "£91,693",
+    "amount": 91693.0,
+    "reason": "This Final Notice refers to a breach of APER Statement of Principle 1 and lack of fitness and propriety related to the reckless design and operation of a pension transfer advice model in the pensions sector. We imposed a prohibition and a financial penalty of £91,693.",
+    "url": "https://www.fca.org.uk/publication/final-notices/alec-john-cuthbert-2024.pdf",
+    "year": 2024
+  },
+  {
+    "firm": "PricewaterhouseCoopers LLP",
+    "firm_normalized": "pricewaterhousecoopers llp",
+    "date": "16/08/2024",
+    "amount_text": "£15,000,000",
+    "amount": 15000000.0,
+    "reason": "This Final Notice refers to the breach of Regulation 2 of the Financial Services and Markets Act 2000 (Communications by Auditors) Regulations 2001 (SI 2001/2587) related to failing to act on information appropriately in the audit sector. We imposed a financial penalty.",
+    "url": "https://www.fca.org.uk/news/press-releases/pwc-fined-failing-alert-fca-suspected-fraudulent-activity-london-capital-finance-plc",
+    "year": 2024
+  },
+  {
+    "firm": "Martin Christopher Sarl",
+    "firm_normalized": "martin christopher sarl",
+    "date": "14/08/2024",
+    "amount_text": "£5,021",
+    "amount": 5021.0,
+    "reason": "This Final Notice refers to breaches of Statement of Principle 1 and FIT 2.1 related to a lack of honesty and integrity in the General Insurance and Protection sector. We imposed a financial penalty, a prohibition and withdrawal.",
+    "url": "https://www.fca.org.uk/publication/final-notices/martin-christopher-sarl-2024.pdf",
+    "year": 2024
+  },
+  {
+    "firm": "Forex TB Limited",
+    "firm_normalized": "forex tb limited",
+    "date": "9/08/2024",
+    "amount_text": "£276,100",
+    "amount": 276100.0,
+    "reason": "This Final Notice refers to breaches of Principle 6 and Section 20 FSMA related to the unfair treatment of customers and failing to operate in accordance with permission while operating under the Temporary Permissions Regime. We imposed a financial penalty.",
+    "url": "https://www.fca.org.uk/publication/final-notices/forex-tb-limited-2024.pdf",
+    "year": 2024
+  },
+  {
+    "firm": "Anthony Dale Cuming",
+    "firm_normalized": "anthony dale cuming",
+    "date": "26/07/2024",
+    "amount_text": "£1,691,259",
+    "amount": 1691259.0,
+    "reason": "This Final Notice refers to breaches of APER 1 related to conduct in the pensions sector. We imposed a prohibition and financial penalty.",
+    "url": "https://www.fca.org.uk/publication/final-notices/anthony-cuming-2024.pdf",
+    "year": 2024
+  },
+  {
+    "firm": "Steven Harbinder Singh Sahota",
+    "firm_normalized": "steven harbinder singh sahota",
+    "date": "26/07/2024",
+    "amount_text": "£1,782,343",
+    "amount": 1782343.0,
+    "reason": "This Final Notice refers to breaches of APER 1 related to conduct in the pensions sector. We imposed a prohibition and financial penalty.",
+    "url": "https://www.fca.org.uk/publication/final-notices/steven-sahota-2024.pdf",
+    "year": 2024
+  },
+  {
+    "firm": "Kyle Anthony Jones",
+    "firm_normalized": "kyle anthony jones",
+    "date": "26/07/2024",
+    "amount_text": "£443,153",
+    "amount": 443153.0,
+    "reason": "This Final Notice refers to breaches of APER 1 related to conduct in the pensions sector. We imposed a prohibition and financial penalty.",
+    "url": "https://www.fca.org.uk/publication/final-notices/kyle-anthony-jones-2024.pdf",
+    "year": 2024
+  },
+  {
+    "firm": "CB Payments Limited",
+    "firm_normalized": "cb payments limited",
+    "date": "23/07/2024",
+    "amount_text": "£3,503,546",
+    "amount": 3503546.0,
+    "reason": "This Final Notice refers to a breach of Statement of Principle 2 related to breaches of voluntary requirements (VREQ) in the e-money sector. The FCA imposed a financial penalty of £3,503,546.",
+    "url": "https://www.fca.org.uk/publication/final-notices/cb-payments-limited-2024.pdf",
+    "year": 2024
+  },
+  {
+    "firm": "Kulvir Virk",
+    "firm_normalized": "kulvir virk",
+    "date": "19/06/2024",
+    "amount_text": "£215,500",
+    "amount": 215500.0,
+    "reason": "This Final Notice refers to breaches of PRIN 1 and PRIN 6 related to a failure to act with integrity and a failure to exercise due care, skill and diligence in the pensions sector. We imposed a financial penalty and a prohibition order.",
+    "url": "https://www.fca.org.uk/publication/final-notices/kulvir-virk-2024.pdf",
+    "year": 2024
+  },
+  {
+    "firm": "HSBC UK Bank plc, HSBC Bank plc, and Marks and Spencer Financial Services plc",
+    "firm_normalized": "hsbc uk bank plc, hsbc bank plc, and marks and spencer financial services plc",
+    "date": "23/05/2024",
+    "amount_text": "£6,280,100",
+    "amount": 6280100.0,
+    "reason": "This Final Notice refers to breaches of Principles 3 and 6 , CONC 7.2.1R, 7.3.4R, and 7.3.14R , and MCOB 13.3.2A . The breaches relate to the unfair treatment of customers in the retail banking, consumer credit and mortgage sectors. We imposed a penalty of £6,280,100.",
+    "url": "https://www.fca.org.uk/publication/final-notices/hsbc-uk-bank-hsbc-bank-marks-and-spencer-financial-services-2024.pdf",
+    "year": 2024
+  },
+  {
+    "firm": "Citigroup Global Markets Ltd",
+    "firm_normalized": "citigroup global markets ltd",
+    "date": "17/05/2024",
+    "amount_text": "£27,766,200",
+    "amount": 27766200.0,
+    "reason": "This Final Notice refers to breaches of PRIN 2 and 3 , and MAR 7A 3.2 related to wholesale conduct in the investment bank sector. We imposed a financial penalty of £27,766,200.",
+    "url": "https://www.fca.org.uk/publication/final-notices/citigroup-global-markets-limited-2024.pdf",
+    "year": 2024
+  },
+  {
+    "firm": "James William Edward Lewis",
+    "firm_normalized": "james william edward lewis",
+    "date": "22/04/2024",
+    "amount_text": "£120,300",
+    "amount": 120300.0,
+    "reason": "This Final Notice refers to a failure to act with due care, skill and integrity. We imposed a financial penalty and a prohibition order.",
+    "url": "https://www.fca.org.uk/publication/final-notices/james-william-edward-lewis-final-notice-2024.pdf",
+    "year": 2024
+  },
+  {
+    "firm": "Inspirational Financial Management Ltd (in administration)",
+    "firm_normalized": "inspirational financial management ltd (in administration)",
+    "date": "11/03/2024",
+    "amount_text": "£897,840",
+    "amount": 897840.0,
+    "reason": "This Final Notice refers to breaches of Principles 3, 6 and 9 related to the provision of unsuitable defined benefit pension transfer advice in the pensions sector. We imposed a financial penalty.",
+    "url": "https://www.fca.org.uk/publication/final-notices/inspirational-financial-management-ltd-2024.pdf",
+    "year": 2024
+  },
+  {
+    "firm": "Floris Jakobus Huisamen",
+    "firm_normalized": "floris jakobus huisamen",
+    "date": "13/02/2024",
+    "amount_text": "£31,800",
+    "amount": 31800.0,
+    "reason": "This Final Notice refers to breaches of CoBS related to financial promotions in the Issuer sector. We imposed a financial penalty.",
+    "url": "https://www.fca.org.uk/publication/final-notices/final-notice-floris-jakobus-huisamen-2024.pdf",
+    "year": 2024
+  }
+]

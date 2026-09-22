@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: fca-rag-api
+    runtime: python
+    plan: free
+    rootDir: backend
+
+    buildCommand: pip install -r requirements.txt
+
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+
+    healthCheckPath: /health
+
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash-lite
+
+      - key: GEMINI_EMBEDDING_MODEL
+        value: gemini-embedding-001
+
+      - key: TOP_K
+        value: "3"
+
+      - key: MIN_RELEVANCE
+        value: "0.25"
+
+      - key: MAX_CONTEXT_CHARS
+        value: "5000"
+
+      - key: LLM_MAX_OUTPUT_TOKENS
+        value: "160"
+
+      - key: FRONTEND_URL
+        sync: false

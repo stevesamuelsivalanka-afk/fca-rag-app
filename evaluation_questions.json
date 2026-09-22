@@ -1,0 +1,7 @@
+[
+ {"question":"Why was Barclays fined in 2025?","checks":["mentions client-money account controls and/or money laundering risk","includes source"]},
+ {"question":"What fines did Barclays receive in 2024?","checks":["finds the two Barclays entries in the 2024 annual page"]},
+ {"question":"What are common issues banks were fined for?","checks":["synthesizes only retrieved evidence","does not invent a universal statistic"]},
+ {"question":"Which firm received the largest fine in 2025?","checks":["uses dataset evidence and identifies Nationwide Building Society if using the annual table"]},
+ {"question":"Tell me about a fine that is not in the indexed documents.","checks":["refuses or says insufficient evidence"]}
+]
