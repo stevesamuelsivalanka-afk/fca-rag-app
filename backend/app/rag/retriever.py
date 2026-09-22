@@ -1,536 +1,326 @@
-import json
+from __future__ import annotations
+
 import re
-from pathlib import Path
 
-from app.core.config import settings
-from app.rag.store import VectorStore
+from collections import defaultdict
+from dataclasses import dataclass
+from typing import Any
+
+from app.rag.store import (
+    VectorStore,
+    canonical_firm_name,
+)
 
 
-YEAR_RE = re.compile(r"\b(19\d{2}|20\d{2})\b")
-
+# ============================================================
+# STOP WORDS
+# ============================================================
 
 STOP_WORDS = {
-    "the",
     "a",
     "an",
     "and",
+    "are",
+    "be",
+    "been",
+    "being",
+    "by",
+    "can",
+    "could",
+    "did",
+    "do",
+    "does",
+    "for",
+    "from",
+    "had",
+    "has",
+    "have",
+    "how",
+    "i",
+    "in",
+    "into",
+    "is",
+    "it",
+    "its",
+    "of",
+    "on",
     "or",
+    "that",
+    "the",
+    "their",
+    "them",
+    "there",
+    "these",
+    "this",
+    "those",
+    "to",
+    "under",
     "was",
     "were",
-    "is",
-    "are",
-    "to",
-    "of",
-    "in",
-    "on",
-    "for",
-    "with",
     "what",
-    "why",
-    "how",
-    "did",
-    "does",
-    "do",
-    "this",
-    "that",
-    "these",
-    "those",
+    "when",
     "which",
     "who",
-    "when",
-    "where",
-    "from",
-    "into",
-    "their",
-    "his",
-    "her",
-    "its",
+    "why",
+    "with",
+    "would",
 }
 
 
-ENFORCEMENT_TERMS = {
+# ============================================================
+# LEGAL / CORPORATE SUFFIXES
+# ============================================================
+
+LEGAL_SUFFIXES = {
+    "bank",
+    "banks",
+    "limited",
+    "ltd",
+    "plc",
+    "llp",
+    "lp",
+    "inc",
+    "corp",
+    "corporation",
+    "company",
+    "co",
+    "group",
+    "holdings",
+    "holding",
+    "services",
+    "service",
+    "uk",
+    "international",
+    "securities",
+    "capital",
+    "asset",
+    "assets",
+    "management",
+    "investment",
+    "investments",
+    "markets",
+    "financial",
+    "finance",
+    "life",
+    "insurance",
+    "assurance",
+}
+
+
+GENERIC_TERMS = {
+    "fca",
     "fine",
+    "fines",
     "fined",
     "penalty",
-    "penalised",
-    "penalized",
+    "penalties",
+    "enforcement",
+    "enforcement action",
+    "regulatory",
+    "regulation",
+    "regulations",
     "breach",
     "breaches",
     "breached",
-    "failings",
+    "fail",
+    "failed",
     "failure",
     "failures",
-    "conduct",
-    "rule",
-    "rules",
+    "failing",
+    "failings",
+    "misconduct",
+    "final notice",
+    "final notices",
+    "decision notice",
+    "decision notices",
+    "authority",
     "principle",
     "principles",
-    "listing",
-    "market abuse",
-    "systems and controls",
+    "depp",
+    "smcr",
+    "conduct rules",
+    "financial crime",
+    "money laundering",
+    "aml",
+    "sanctions",
+    "systems",
     "controls",
     "governance",
-    "monitoring",
+    "compliance",
     "risk",
-    "requirements",
-    "decision notice",
-    "final notice",
-    "tribunal",
-    "upper tribunal",
+    "risks",
 }
 
 
-def normalize(value):
-    value = str(value or "").lower().strip()
+# ============================================================
+# INTENT TERMS
+# ============================================================
 
-    value = value.replace("’", "'")
-    value = value.replace("–", "-")
-    value = value.replace("—", "-")
-
-    value = re.sub(r"\s+", " ", value)
-
-    return value
-
-
-def tokenize(value):
-    return set(
-        word
-        for word in re.findall(
-            r"[a-z0-9]+",
-            normalize(value),
-        )
-        if word not in STOP_WORDS
-    )
-
-
-def load_metadata():
-    path = (
-        Path(__file__).resolve().parents[2]
-        / "data"
-        / "processed"
-        / "metadata.json"
-    )
-
-    if not path.exists():
-        print("Metadata not found:", path)
-        return []
-
-    try:
-        return json.loads(
-            path.read_text(
-                encoding="utf-8"
-            )
-        )
-    except Exception as exc:
-        print("Metadata error:", exc)
-        return []
-
-
-def build_entity_catalogue(metadata):
-    """
-    Build entities directly from the indexed data.
-
-    Nothing here is specific to Barclays, Staley,
-    John Wood Group, etc.
-    """
-
-    entities = set()
-
-    for item in metadata:
-
-        for field in (
-            "firm_normalized",
-            "firm",
-        ):
-
-            value = normalize(
-                item.get(field)
-            )
-
-            if len(value) >= 3:
-                entities.add(value)
-
-    return sorted(
-        entities,
-        key=lambda x: (
-            -len(tokenize(x)),
-            -len(x),
-        ),
-    )
-
-
-def extract_years(question):
-    years = []
-
-    for value in YEAR_RE.findall(question):
-
-        year = int(value)
-
-        if 1900 <= year <= 2100:
-            years.append(year)
-
-    return sorted(set(years))
-
-
-def exact_entity_matches(
-    question,
-    catalogue,
-):
-    """
-    Match complete metadata entity phrases.
-    """
-
-    question_normalized = normalize(
-        question
-    )
-
-    matches = []
-
-    for entity in catalogue:
-
-        if entity in question_normalized:
-
-            matches.append(entity)
-
-    return sorted(
-        set(matches),
-        key=len,
-        reverse=True,
-    )
-
-
-def fuzzy_entity_matches(
-    question,
-    catalogue,
-):
-    """
-    Handle natural shortened names.
-
-    Example:
-
-        "James Staley"
-
-    can match:
-
-        "james edward staley"
-
-    without hardcoding Staley.
-    """
-
-    question_tokens = tokenize(
-        question
-    )
-
-    candidates = []
-
-    for entity in catalogue:
-
-        entity_tokens = tokenize(
-            entity
-        )
-
-        if not entity_tokens:
-            continue
-
-        overlap = (
-            question_tokens
-            & entity_tokens
-        )
-
-        if not overlap:
-            continue
-
-        coverage = (
-            len(overlap)
-            / len(entity_tokens)
-        )
-
-        # For multi-word entities, require
-        # meaningful overlap.
-        if (
-            len(entity_tokens) >= 2
-            and coverage >= 0.50
-        ):
-            candidates.append(
-                (
-                    coverage,
-                    len(overlap),
-                    len(entity),
-                    entity,
-                )
-            )
-
-        # Single-word entities must be exact
-        # token matches.
-        elif (
-            len(entity_tokens) == 1
-            and entity_tokens <= question_tokens
-        ):
-            candidates.append(
-                (
-                    1.0,
-                    1,
-                    len(entity),
-                    entity,
-                )
-            )
-
-    candidates.sort(
-        reverse=True
-    )
-
-    return [
-        item[3]
-        for item in candidates[:5]
-    ]
-
-
-def extract_entities(
-    question,
-    catalogue,
-):
-    exact = exact_entity_matches(
-        question,
-        catalogue,
-    )
-
-    if exact:
-        return exact[:5]
-
-    return fuzzy_entity_matches(
-        question,
-        catalogue,
-    )
-
-
-def detect_comparison(
-    question,
-    entities,
-):
-    lower = normalize(question)
-
-    comparison_words = (
+INTENT_TERMS = {
+    "why": {
+        "why",
+        "reason",
+        "reasons",
+        "because",
+        "cause",
+        "caused",
+        "failure",
+        "failures",
+        "failings",
+        "breach",
+        "breached",
+        "misconduct",
+    },
+    "rules": {
+        "principle",
+        "principles",
+        "rule",
+        "rules",
+        "conduct",
+        "icr",
+        "smcr",
+        "senior management",
+        "individual conduct",
+        "depp",
+        "guideline",
+        "guidelines",
+    },
+    "penalty": {
+        "fine",
+        "fines",
+        "fined",
+        "penalty",
+        "penalties",
+        "amount",
+        "amounts",
+        "£",
+        "million",
+        "thousand",
+    },
+    "comparison": {
         "compare",
         "comparison",
         "versus",
         "vs",
-        "difference",
-        "differences",
         "between",
-        "both",
-        "differ",
-    )
-
-    return (
-        len(entities) >= 2
-        or any(
-            word in lower
-            for word in comparison_words
-        )
-    )
-
-
-def expand_question(question):
-    """
-    Add generic FCA vocabulary for enforcement questions.
-
-    This is not tied to any specific firm.
-    """
-
-    lower = normalize(question)
-
-    enforcement_question = any(
-        term in lower
-        for term in (
-            "why",
-            "breach",
-            "breached",
-            "failings",
-            "failure",
-            "fine",
-            "fined",
-            "penalty",
-            "rules",
-            "principles",
-            "conduct",
-            "tribunal",
-        )
-    )
-
-    if not enforcement_question:
-        return question
-
-    return (
-        f"{question} "
-        "FCA enforcement regulatory "
-        "breaches failings conduct rules "
-        "systems controls requirements "
-        "decision notice final notice "
-        "regulatory findings"
-    )
+        "difference",
+        "different",
+        "each",
+    },
+    "common_issues": {
+        "common",
+        "commonly",
+        "issues",
+        "issue",
+        "problems",
+        "themes",
+        "reasons",
+        "failings",
+        "failures",
+        "banks",
+        "bank",
+        "firms",
+        "firm",
+        "insurance",
+        "insurers",
+    },
+    "tribunal": {
+        "tribunal",
+        "upper tribunal",
+        "decision notice",
+        "decision",
+        "appeal",
+        "appealed",
+    },
+    "date": {
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+        "early",
+        "mid",
+        "late",
+    },
+}
 
 
-def lexical_score(
-    question,
-    text,
-):
-    question_tokens = tokenize(
-        question
-    )
-
-    text_tokens = tokenize(
-        text
-    )
-
-    if not question_tokens:
-        return 0.0
-
-    overlap = (
-        question_tokens
-        & text_tokens
-    )
-
-    return (
-        len(overlap)
-        / len(question_tokens)
-    )
+MONTHS = {
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
+}
 
 
-def enforcement_score(text):
-    text = normalize(text)
+# ============================================================
+# QUERY ANALYSIS
+# ============================================================
 
-    matches = 0
-
-    for term in ENFORCEMENT_TERMS:
-
-        if term in text:
-            matches += 1
-
-    return min(
-        matches / 8.0,
-        1.0,
-    )
-
-
-def evidence_score(
-    question,
-    hit,
-):
-    text = hit.get("text") or ""
-
-    semantic = float(
-        hit.get("score", 0)
-    )
-
-    lexical = lexical_score(
-        question,
-        text,
-    )
-
-    enforcement = enforcement_score(
-        text
-    )
-
-    # Semantic remains the strongest signal.
-    return (
-        semantic * 0.65
-        + lexical * 0.20
-        + enforcement * 0.15
-    )
+@dataclass
+class QueryAnalysis:
+    question: str
+    search_question: str
+    entities: list[str]
+    ambiguous_entities: list[str]
+    years: list[int]
+    months: list[int]
+    intent: str
+    comparison: bool
+    common_issues: bool
+    asks_why: bool
+    asks_rules: bool
+    asks_penalty: bool
+    asks_tribunal: bool
+    asks_date: bool
 
 
-def select_diverse_hits(
-    question,
-    hits,
-    target_k,
-):
-    scored = []
-
-    for hit in hits:
-
-        score = evidence_score(
-            question,
-            hit,
-        )
-
-        scored.append(
-            (
-                score,
-                hit,
-            )
-        )
-
-    scored.sort(
-        key=lambda x: x[0],
-        reverse=True,
-    )
-
-    selected = []
-
-    # First pass:
-    # avoid returning the same page repeatedly.
-    for score, hit in scored:
-
-        page = hit.get("page")
-
-        duplicate_page = False
-
-        for existing in selected:
-
-            existing_page = (
-                existing.get("page")
-            )
-
-            if (
-                page is not None
-                and existing_page is not None
-                and str(page) == str(existing_page)
-            ):
-                duplicate_page = True
-                break
-
-        if duplicate_page:
-            continue
-
-        hit["_evidence_score"] = score
-
-        selected.append(hit)
-
-        if len(selected) >= target_k:
-            break
-
-    # Second pass if page diversity wasn't enough.
-    if len(selected) < target_k:
-
-        for score, hit in scored:
-
-            if hit in selected:
-                continue
-
-            hit["_evidence_score"] = score
-
-            selected.append(hit)
-
-            if len(selected) >= target_k:
-                break
-
-    return selected
-
+# ============================================================
+# RETRIEVER
+# ============================================================
 
 class Retriever:
 
     def __init__(
         self,
         store: VectorStore,
+        top_k: int = 3,
+        retrieval_k: int = 15,
+        min_relevance: float = 0.20,
     ):
         self.store = store
 
-        self.metadata = load_metadata()
+        self.top_k = max(
+            1,
+            int(top_k),
+        )
+
+        self.retrieval_k = max(
+            5,
+            int(retrieval_k),
+        )
+
+        self.min_relevance = float(
+            min_relevance
+        )
 
         self.entity_catalogue = (
-            build_entity_catalogue(
-                self.metadata
-            )
+            self._build_entity_catalogue()
         )
 
         print(
@@ -539,36 +329,1867 @@ class Retriever:
             "entities",
         )
 
-    def search(
+    # ========================================================
+    # TEXT
+    # ========================================================
+
+    @staticmethod
+    def tokenize(text: str) -> set[str]:
+        text = str(text or "").lower()
+
+        text = re.sub(
+            r"[^a-z0-9£]+",
+            " ",
+            text,
+        )
+
+        return {
+            token
+            for token in text.split()
+            if token
+            and token not in STOP_WORDS
+        }
+
+    @staticmethod
+    def normalize_text(text: str) -> str:
+        return re.sub(
+            r"\s+",
+            " ",
+            str(text or "").lower().strip(),
+        )
+
+    # ========================================================
+    # ENTITY CATALOGUE
+    # ========================================================
+
+    def _build_entity_catalogue(self) -> list[str]:
+        values = set()
+
+        for metadata in self.store.metadata or []:
+            firm = (
+                metadata.get("firm")
+                or metadata.get("firm_normalized")
+                or ""
+            )
+
+            firm = str(firm).strip()
+
+            if firm:
+                values.add(firm)
+
+        return sorted(
+            values,
+            key=lambda value: (
+                -len(self.tokenize(value)),
+                -len(value),
+                value.lower(),
+            ),
+        )
+
+    def _entity_root_tokens(
+        self,
+        entity: str,
+    ) -> set[str]:
+        tokens = self.tokenize(entity)
+
+        return {
+            token
+            for token in tokens
+            if token not in LEGAL_SUFFIXES
+            and token not in GENERIC_TERMS
+        }
+
+    def _entity_root(
+        self,
+        entity: str,
+    ) -> str:
+        tokens = self._entity_root_tokens(entity)
+
+        return " ".join(
+            sorted(tokens)
+        )
+
+    # ========================================================
+    # EXACT ENTITY MATCH
+    # ========================================================
+
+    def _exact_entity_matches(
         self,
         question: str,
-    ):
+    ) -> list[str]:
 
-        target_k = max(
-            1,
-            settings.top_k,
+        normalized_question = (
+            self.normalize_text(question)
         )
 
-        retrieval_k = max(
-            settings.retrieval_k,
-            target_k * 5,
-        )
+        matches = []
 
-        entities = extract_entities(
-            question,
-            self.entity_catalogue,
-        )
+        for entity in self.entity_catalogue:
+            normalized_entity = (
+                self.normalize_text(entity)
+            )
 
-        years = extract_years(
+            if not normalized_entity:
+                continue
+
+            pattern = (
+                r"(?<![a-z0-9])"
+                + re.escape(normalized_entity)
+                + r"(?![a-z0-9])"
+            )
+
+            if re.search(
+                pattern,
+                normalized_question,
+            ):
+                matches.append(entity)
+
+        return matches
+
+    # ========================================================
+    # BRAND / ROOT ENTITY MATCHING
+    # ========================================================
+
+    def _root_entity_candidates(
+        self,
+        question: str,
+    ) -> dict[str, list[str]]:
+
+        question_tokens = self.tokenize(
             question
         )
 
-        comparison = detect_comparison(
-            question,
-            entities,
+        grouped = defaultdict(list)
+
+        if not question_tokens:
+            return {}
+
+        for entity in self.entity_catalogue:
+
+            root_tokens = (
+                self._entity_root_tokens(entity)
+            )
+
+            if not root_tokens:
+                continue
+
+            overlap = (
+                question_tokens
+                & root_tokens
+            )
+
+            # Every meaningful root token must be present
+            # for multi-token entities.
+            if not overlap:
+                continue
+
+            if len(root_tokens) == 1:
+                if overlap != root_tokens:
+                    continue
+            else:
+                if len(overlap) != len(root_tokens):
+                    continue
+
+            root = self._entity_root(entity)
+
+            if root:
+                grouped[root].append(entity)
+
+        return dict(grouped)
+
+    def _resolve_root_entities(
+        self,
+        question: str,
+        years: list[int],
+        comparison: bool,
+    ) -> tuple[list[str], list[str]]:
+
+        grouped = self._root_entity_candidates(
+            question
         )
 
-        search_question = expand_question(
+        if not grouped:
+            return [], []
+
+        resolved = []
+        ambiguous = []
+
+        for root, entities in grouped.items():
+
+            # Deduplicate legal entity names.
+            entities = list(dict.fromkeys(entities))
+
+            if len(entities) == 1:
+                resolved.append(
+                    entities[0]
+                )
+                continue
+
+            # ------------------------------------------------
+            # For a multi-year comparison, establish whether
+            # one legal entity exists across all requested
+            # years. This is what allows "Barclays" to resolve
+            # dynamically without hardcoding Barclays.
+            # ------------------------------------------------
+
+            if comparison and years:
+
+                coverage = []
+
+                for entity in entities:
+
+                    entity_years = set()
+
+                    for metadata in (
+                        self.store.metadata or []
+                    ):
+                        if not self._metadata_entity_matches(
+                            metadata,
+                            entity,
+                        ):
+                            continue
+
+                        try:
+                            year = int(
+                                metadata.get("year")
+                            )
+                        except (
+                            TypeError,
+                            ValueError,
+                        ):
+                            continue
+
+                        entity_years.add(year)
+
+                    requested_coverage = (
+                        entity_years
+                        & set(years)
+                    )
+
+                    coverage.append(
+                        (
+                            len(requested_coverage),
+                            entity,
+                            requested_coverage,
+                        )
+                    )
+
+                coverage.sort(
+                    key=lambda item: item[0],
+                    reverse=True,
+                )
+
+                if coverage:
+
+                    best_count = coverage[0][0]
+
+                    best = [
+                        item
+                        for item in coverage
+                        if item[0] == best_count
+                    ]
+
+                    # Exactly one legal entity covers
+                    # every requested year.
+                    if (
+                        best_count == len(years)
+                        and len(best) == 1
+                    ):
+                        resolved.append(
+                            best[0][1]
+                        )
+                        continue
+
+            # Multiple legal entities remain possible.
+            ambiguous.extend(
+                entities
+            )
+
+        return (
+            list(dict.fromkeys(resolved)),
+            list(dict.fromkeys(ambiguous)),
+        )
+
+    
+    def _basic_query_analysis(
+        self,
+        question: str,
+    ) -> QueryAnalysis:
+
+        years = self.extract_years(
+            question
+        )
+
+        months = self.extract_months(
+            question
+        )
+
+        normalized = self.normalize_text(
+            question
+        )
+
+        intent = self.detect_intent(
+            question
+        )
+
+        comparison = bool(
+            re.search(
+                r"\bcompare\b"
+                r"|\bversus\b"
+                r"|\bvs\.?\b"
+                r"|\bbetween\b",
+                normalized,
+            )
+        )
+
+        return QueryAnalysis(
+            question=question,
+            search_question=question,
+            entities=[],
+            ambiguous_entities=[],
+            years=years,
+            months=months,
+            intent=intent,
+            comparison=comparison,
+            common_issues=(
+                intent == "common_issues"
+            ),
+            asks_why=(
+                normalized.startswith("why")
+                or intent == "why"
+            ),
+            asks_rules=(
+                intent == "rules"
+            ),
+            asks_penalty=(
+                intent == "penalty"
+            ),
+            asks_tribunal=(
+                intent == "tribunal"
+            ),
+            asks_date=(
+                bool(months)
+                or intent == "date"
+            ),
+        )
+
+
+    def _basic_query_analysis(
+        self,
+        question: str,
+    ) -> QueryAnalysis:
+
+        years = self.extract_years(
+            question
+        )
+
+        months = self.extract_months(
+            question
+        )
+
+        normalized = self.normalize_text(
+            question
+        )
+
+        intent = self.detect_intent(
+            question
+        )
+
+        comparison = bool(
+            re.search(
+                r"\bcompare\b"
+                r"|\bversus\b"
+                r"|\bvs\.?\b"
+                r"|\bbetween\b",
+                normalized,
+            )
+        )
+
+        return QueryAnalysis(
+            question=question,
+            search_question=question,
+            entities=[],
+            ambiguous_entities=[],
+            years=years,
+            months=months,
+            intent=intent,
+            comparison=comparison,
+            common_issues=(
+                intent == "common_issues"
+            ),
+            asks_why=(
+                normalized.startswith("why")
+                or intent == "why"
+            ),
+            asks_rules=(
+                intent == "rules"
+            ),
+            asks_penalty=(
+                intent == "penalty"
+            ),
+            asks_tribunal=(
+                intent == "tribunal"
+            ),
+            asks_date=(
+                bool(months)
+                or intent == "date"
+            ),
+        )
+
+
+    def _resolve_ambiguous_root_entity(
+        self,
+        question: str,
+        candidates: list[str],
+        years: list[int],
+    ) -> tuple[list[str], list[str]]:
+
+        if not candidates:
+            return [], []
+
+        analysis = self._basic_query_analysis(
+            question
+        )
+
+        scored = []
+
+        for entity in candidates:
+
+            entity_metadata = []
+
+            for metadata in self.store.metadata or []:
+
+                if not self._metadata_entity_matches(
+                    metadata,
+                    entity,
+                ):
+                    continue
+
+                if years and not self._metadata_year_matches(
+                    metadata,
+                    years,
+                ):
+                    continue
+
+                entity_metadata.append(
+                    metadata
+                )
+
+            if not entity_metadata:
+                continue
+
+            best_score = 0.0
+            total_score = 0.0
+            enforcement_hits = 0
+
+            for metadata in entity_metadata:
+
+                text = str(
+                    metadata.get("text") or ""
+                )
+
+                firm = str(
+                    metadata.get("firm")
+                    or ""
+                )
+
+                searchable = (
+                    f"{firm} {text}"
+                )
+
+                lexical = self.lexical_score(
+                    question,
+                    searchable,
+                )
+
+                phrase = self.phrase_score(
+                    question,
+                    searchable,
+                )
+
+                enforcement = self.enforcement_score(
+                    searchable,
+                    analysis,
+                )
+
+                score = (
+                    lexical * 0.35
+                    + phrase * 0.20
+                    + enforcement * 0.45
+                )
+
+                best_score = max(
+                    best_score,
+                    score,
+                )
+
+                total_score += score
+
+                lower = text.lower()
+
+                if any(
+                    term in lower
+                    for term in (
+                        "breached",
+                        "breach",
+                        "failed to",
+                        "failings",
+                        "misconduct",
+                        "financial penalty",
+                        "fined",
+                        "penalty",
+                    )
+                ):
+                    enforcement_hits += 1
+
+            average_score = (
+                total_score
+                / len(entity_metadata)
+            )
+
+            final_score = (
+                best_score * 0.65
+                + average_score * 0.20
+                + min(
+                    0.15,
+                    enforcement_hits * 0.03,
+                )
+            )
+
+            scored.append(
+                (
+                    final_score,
+                    best_score,
+                    entity,
+                    enforcement_hits,
+                )
+            )
+
+        if not scored:
+            return [], candidates
+
+        scored.sort(
+            key=lambda item: (
+                item[0],
+                item[1],
+                item[3],
+            ),
+            reverse=True,
+        )
+
+        if len(scored) == 1:
+            return [scored[0][2]], []
+
+        best = scored[0]
+        second = scored[1]
+
+        margin = (
+            best[0] - second[0]
+        )
+
+        if (
+            best[0] >= 0.20
+            and margin >= 0.06
+        ):
+            return [best[2]], []
+
+        return [], candidates
+
+    def resolve_entities(
+        self,
+        question: str,
+        years: list[int] | None = None,
+        comparison: bool = False,
+    ) -> tuple[list[str], list[str]]:
+
+        years = years or []
+
+        exact = self._exact_entity_matches(
+            question
+        )
+
+        if exact:
+            return (
+                exact,
+                [],
+            )
+
+        resolved, ambiguous = (
+            self._resolve_root_entities(
+                question,
+                years,
+                comparison,
+            )
+        )
+
+        if resolved:
+            return (
+                resolved,
+                [],
+            )
+
+        if ambiguous:
+            return self._resolve_ambiguous_root_entity(
+                question,
+                ambiguous,
+                years,
+            )
+
+        return [], []
+    # ========================================================
+    # YEAR / MONTH
+    # ========================================================
+
+    @staticmethod
+    def extract_years(
+        question: str,
+    ) -> list[int]:
+
+        return sorted(
+            {
+                int(value)
+                for value in re.findall(
+                    r"\b(?:2024|2025|2026)\b",
+                    question,
+                )
+            }
+        )
+
+    @staticmethod
+    def extract_months(
+        question: str,
+    ) -> list[int]:
+
+        question_lower = question.lower()
+
+        months = []
+
+        for name, number in MONTHS.items():
+
+            if re.search(
+                rf"\b{name}\b",
+                question_lower,
+            ):
+                months.append(number)
+
+        return sorted(set(months))
+
+    # ========================================================
+    # INTENT
+    # ========================================================
+
+    def detect_intent(
+        self,
+        question: str,
+    ) -> str:
+
+        text = self.normalize_text(
+            question
+        )
+
+        scores = {}
+
+        for intent, terms in INTENT_TERMS.items():
+
+            score = 0
+
+            for term in terms:
+                if term in text:
+                    score += 1
+
+            scores[intent] = score
+
+        if text.startswith("why "):
+            return "why"
+
+        if (
+            "what happened" in text
+            or "reason" in text
+            or "why was" in text
+            or "why were" in text
+        ):
+            return "why"
+
+        best = max(
+            scores,
+            key=scores.get,
+        )
+
+        if scores[best] <= 0:
+            return "general"
+
+        return best
+    # ========================================================
+    # QUERY ANALYSIS
+    # ========================================================
+
+    def analyze_question(
+        self,
+        question: str,
+    ) -> QueryAnalysis:
+
+        question = str(
+            question or ""
+        ).strip()
+
+        years = self.extract_years(
+            question
+        )
+
+        months = self.extract_months(
+            question
+        )
+
+        intent = self.detect_intent(
+            question
+        )
+
+        normalized = self.normalize_text(
+            question
+        )
+
+        comparison = (
+            intent == "comparison"
+            or bool(
+                re.search(
+                    r"\bcompare\b"
+                    r"|\bversus\b"
+                    r"|\bvs\.?\b"
+                    r"|\bbetween\b",
+                    normalized,
+                )
+            )
+        )
+
+        common_issues = (
+            intent == "common_issues"
+            or (
+                "common" in normalized
+                and (
+                    "issues" in normalized
+                    or "failings" in normalized
+                    or "failures" in normalized
+                )
+            )
+        )
+
+        entities, ambiguous = (
+            self.resolve_entities(
+                question,
+                years=years,
+                comparison=comparison,
+            )
+        )
+
+        asks_why = (
+            normalized.startswith("why")
+            or intent == "why"
+        )
+
+        asks_rules = (
+            intent == "rules"
+            or any(
+                term in normalized
+                for term in (
+                    "principle",
+                    "principles",
+                    "conduct rule",
+                    "conduct rules",
+                    "smcr",
+                    "icr",
+                    "depp",
+                )
+            )
+        )
+
+        asks_penalty = (
+            intent == "penalty"
+            or any(
+                term in normalized
+                for term in (
+                    "fine",
+                    "fines",
+                    "fined",
+                    "penalty",
+                    "penalties",
+                )
+            )
+        )
+
+        asks_tribunal = (
+            intent == "tribunal"
+            or "tribunal" in normalized
+            or "appeal" in normalized
+            or "decision notice" in normalized
+        )
+
+        asks_date = (
+            bool(months)
+            or intent == "date"
+            or "late " in normalized
+            or "early " in normalized
+            or "mid " in normalized
+        )
+
+        search_terms = [
+            question,
+            "FCA enforcement",
+            "Final Notice",
+        ]
+
+        if asks_why:
+            search_terms.extend(
+                [
+                    "breach",
+                    "failed",
+                    "failings",
+                    "misconduct",
+                    "reason",
+                ]
+            )
+
+        if asks_rules:
+            search_terms.extend(
+                [
+                    "Principle",
+                    "Conduct Rules",
+                    "SMCR",
+                    "ICR",
+                    "DEPP",
+                ]
+            )
+
+        if asks_penalty:
+            search_terms.extend(
+                [
+                    "financial penalty",
+                    "fine",
+                    "penalty",
+                    "Step 1",
+                    "Step 2",
+                    "Step 3",
+                ]
+            )
+
+        if asks_tribunal:
+            search_terms.extend(
+                [
+                    "Upper Tribunal",
+                    "Decision Notice",
+                    "Final Notice",
+                    "appeal",
+                ]
+            )
+
+        return QueryAnalysis(
+            question=question,
+            search_question=" ".join(
+                search_terms
+            ),
+            entities=entities,
+            ambiguous_entities=ambiguous,
+            years=years,
+            months=months,
+            intent=intent,
+            comparison=comparison,
+            common_issues=common_issues,
+            asks_why=asks_why,
+            asks_rules=asks_rules,
+            asks_penalty=asks_penalty,
+            asks_tribunal=asks_tribunal,
+            asks_date=asks_date,
+        )
+
+    # ========================================================
+    # LEXICAL SCORING
+    # ========================================================
+
+    def lexical_score(
+        self,
+        question: str,
+        text: str,
+    ) -> float:
+
+        q = self.tokenize(question)
+        t = self.tokenize(text)
+
+        if not q or not t:
+            return 0.0
+
+        overlap = (
+            len(q & t)
+            / max(1, len(q))
+        )
+
+        return min(
+            1.0,
+            overlap * 2.5,
+        )
+
+    def phrase_score(
+        self,
+        question: str,
+        text: str,
+    ) -> float:
+
+        question_lower = self.normalize_text(
+            question
+        )
+
+        text_lower = self.normalize_text(
+            text
+        )
+
+        phrases = [
+            "financial penalty",
+            "final notice",
+            "decision notice",
+            "upper tribunal",
+            "conduct rules",
+            "individual conduct rules",
+            "senior manager conduct rules",
+            "principle 1",
+            "principle 2",
+            "principle 3",
+            "principle 6",
+            "money laundering",
+            "financial crime",
+            "sanctions screening",
+            "systems and controls",
+        ]
+
+        score = 0.0
+
+        for phrase in phrases:
+            if (
+                phrase in question_lower
+                and phrase in text_lower
+            ):
+                score += 0.20
+
+        return min(
+            1.0,
+            score,
+        )
+
+    # ========================================================
+    # ENFORCEMENT SCORE
+    # ========================================================
+
+    def enforcement_score(
+        self,
+        text: str,
+        analysis: QueryAnalysis,
+    ) -> float:
+
+        text_lower = self.normalize_text(
+            text
+        )
+
+        score = 0.0
+
+        strong_terms = {
+            "breached": 0.18,
+            "breach": 0.15,
+            "misconduct": 0.15,
+            "failed to": 0.15,
+            "failings": 0.14,
+            "financial penalty": 0.14,
+            "fined": 0.14,
+            "penalty": 0.12,
+            "the authority considers": 0.10,
+            "principle": 0.10,
+            "final notice": 0.10,
+            "decision notice": 0.10,
+            "step 1": 0.08,
+            "step 2": 0.08,
+            "step 3": 0.08,
+        }
+
+        for term, weight in strong_terms.items():
+            if term in text_lower:
+                score += weight
+
+        if analysis.asks_why:
+            if any(
+                term in text_lower
+                for term in (
+                    "breached",
+                    "breach",
+                    "failed to",
+                    "failings",
+                    "misconduct",
+                )
+            ):
+                score += 0.25
+
+        if analysis.asks_rules:
+            if any(
+                term in text_lower
+                for term in (
+                    "principle",
+                    "conduct rule",
+                    "smcr",
+                    "icr",
+                )
+            ):
+                score += 0.25
+
+        if analysis.asks_penalty:
+            if any(
+                term in text_lower
+                for term in (
+                    "penalty",
+                    "fined",
+                    "fine",
+                    "step 1",
+                    "step 2",
+                    "step 3",
+                )
+            ):
+                score += 0.25
+
+        if analysis.asks_tribunal:
+            if any(
+                term in text_lower
+                for term in (
+                    "tribunal",
+                    "decision notice",
+                    "appeal",
+                )
+            ):
+                score += 0.35
+
+        return min(
+            1.0,
+            score,
+        )
+
+    # ========================================================
+    # DATE
+    # ========================================================
+
+    def date_score(
+        self,
+        metadata: dict[str, Any],
+        analysis: QueryAnalysis,
+    ) -> float:
+
+        if not (
+            analysis.years
+            or analysis.months
+        ):
+            return 0.0
+
+        score = 0.0
+
+        try:
+            metadata_year = int(
+                metadata.get("year")
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            metadata_year = None
+
+        if (
+            metadata_year is not None
+            and metadata_year in analysis.years
+        ):
+            score += 0.35
+
+        text = self.normalize_text(
+            metadata.get("text") or ""
+        )
+
+        for month_number in analysis.months:
+
+            month_name = next(
+                (
+                    name
+                    for name, number
+                    in MONTHS.items()
+                    if number == month_number
+                ),
+                "",
+            )
+
+            if month_name in text:
+                score += 0.10
+
+        return min(
+            1.0,
+            score,
+        )
+
+    # ========================================================
+    # KEYS
+    # ========================================================
+
+    @staticmethod
+    def case_key(
+        metadata: dict[str, Any],
+    ) -> str:
+
+        url = (
+            metadata.get("url")
+            or metadata.get("source_url")
+            or ""
+        )
+
+        if url:
+            return str(url)
+
+        return "|".join(
+            [
+                str(
+                    metadata.get("firm")
+                    or ""
+                ),
+                str(
+                    metadata.get("year")
+                    or ""
+                ),
+            ]
+        )
+
+    @staticmethod
+    def chunk_key(
+        metadata: dict[str, Any],
+    ) -> str:
+
+        return "|".join(
+            [
+                str(
+                    metadata.get("url")
+                    or metadata.get("source_url")
+                    or ""
+                ),
+                str(
+                    metadata.get("page")
+                    or ""
+                ),
+                str(
+                    metadata.get("text")
+                    or ""
+                )[:160],
+            ]
+        )
+
+    # ========================================================
+    # METADATA MATCHING
+    # ========================================================
+
+    def _metadata_entity_matches(
+        self,
+        metadata: dict[str, Any],
+        entity: str,
+    ) -> bool:
+
+        actual = canonical_firm_name(
+            metadata.get(
+                "firm_normalized"
+            )
+            or metadata.get("firm")
+            or ""
+        )
+
+        requested = canonical_firm_name(
+            entity
+        )
+
+        return bool(
+            requested
+        ) and actual == requested
+
+    def _metadata_year_matches(
+        self,
+        metadata: dict[str, Any],
+        years: list[int],
+    ) -> bool:
+
+        if not years:
+            return True
+
+        try:
+            year = int(
+                metadata.get("year")
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            return False
+
+        return year in years
+
+    # ========================================================
+    # LEXICAL SEARCH
+    # ========================================================
+
+    def _lexical_search(
+        self,
+        analysis: QueryAnalysis,
+        limit: int = 80,
+    ) -> list[dict]:
+
+        candidates = []
+
+        question = analysis.search_question
+
+        for metadata_index, metadata in enumerate(
+            self.store.metadata or []
+        ):
+
+            if not self._metadata_year_matches(
+                metadata,
+                analysis.years,
+            ):
+                continue
+
+            text = str(
+                metadata.get("text") or ""
+            )
+
+            firm = str(
+                metadata.get("firm")
+                or metadata.get(
+                    "firm_normalized"
+                )
+                or ""
+            )
+
+            searchable = (
+                f"{firm} {text}"
+            )
+
+            lexical = self.lexical_score(
+                question,
+                searchable,
+            )
+
+            phrase = self.phrase_score(
+                analysis.question,
+                searchable,
+            )
+
+            enforcement = self.enforcement_score(
+                searchable,
+                analysis,
+            )
+
+            date = self.date_score(
+                metadata,
+                analysis,
+            )
+
+            entity_bonus = 0.0
+
+            if analysis.entities:
+                if any(
+                    self._metadata_entity_matches(
+                        metadata,
+                        entity,
+                    )
+                    for entity in analysis.entities
+                ):
+                    entity_bonus = 0.45
+
+            score = (
+                lexical * 0.35
+                + phrase * 0.20
+                + enforcement * 0.25
+                + date * 0.10
+                + entity_bonus
+            )
+
+            if score <= 0:
+                continue
+
+            result = {
+                **metadata,
+                "score": float(
+                    min(1.0, score)
+                ),
+                "_metadata_index": metadata_index,
+                "_retrieval_type": "lexical",
+            }
+
+            candidates.append(result)
+
+        candidates.sort(
+            key=lambda item: float(
+                item.get("score", 0.0)
+            ),
+            reverse=True,
+        )
+
+        return candidates[:limit]
+
+    # ========================================================
+    # SEMANTIC SEARCH
+    # ========================================================
+
+    def _semantic_search(
+        self,
+        query: str,
+        filters: dict | None = None,
+        k: int = 20,
+    ) -> list[dict]:
+
+        try:
+            results = self.store.search(
+                query=query,
+                filters=filters,
+                k=k,
+                firm_match_mode="exact",
+            )
+        except TypeError:
+            results = self.store.search(
+                query=query,
+                filters=filters,
+                k=k,
+            )
+
+        for item in results:
+            item["_retrieval_type"] = "semantic"
+
+        return results
+
+    # ========================================================
+    # CANDIDATE MERGE / RERANK
+    # ========================================================
+
+    def _merge_candidates(
+        self,
+        analysis: QueryAnalysis,
+        candidates: list[dict],
+    ) -> list[dict]:
+
+        merged = {}
+
+        for candidate in candidates:
+
+            key = self.chunk_key(candidate)
+
+            if key not in merged:
+                merged[key] = {
+                    **candidate
+                }
+                continue
+
+            current = merged[key]
+
+            current["score"] = max(
+                float(
+                    current.get(
+                        "score",
+                        0.0,
+                    )
+                ),
+                float(
+                    candidate.get(
+                        "score",
+                        0.0,
+                    )
+                ),
+            )
+
+            current["_retrieval_type"] = "hybrid"
+
+        reranked = []
+
+        for candidate in merged.values():
+
+            text = str(
+                candidate.get("text") or ""
+            )
+
+            semantic = float(
+                candidate.get(
+                    "score",
+                    0.0,
+                )
+            )
+
+            searchable = (
+                str(
+                    candidate.get("firm")
+                    or ""
+                )
+                + " "
+                + text
+            )
+
+            lexical = self.lexical_score(
+                analysis.question,
+                searchable,
+            )
+
+            phrase = self.phrase_score(
+                analysis.question,
+                text,
+            )
+
+            enforcement = self.enforcement_score(
+                text,
+                analysis,
+            )
+
+            date = self.date_score(
+                candidate,
+                analysis,
+            )
+
+            entity_bonus = 0.0
+
+            if analysis.entities:
+                if any(
+                    self._metadata_entity_matches(
+                        candidate,
+                        entity,
+                    )
+                    for entity in analysis.entities
+                ):
+                    entity_bonus = 0.25
+
+            final_score = (
+                semantic * 0.30
+                + lexical * 0.18
+                + phrase * 0.12
+                + enforcement * 0.30
+                + date * 0.05
+                + entity_bonus
+            )
+
+            candidate["_evidence_score"] = float(
+                min(1.0, final_score)
+            )
+
+            reranked.append(candidate)
+
+        reranked.sort(
+            key=lambda item: float(
+                item.get(
+                    "_evidence_score",
+                    0.0,
+                )
+            ),
+            reverse=True,
+        )
+
+        return reranked
+
+    # ========================================================
+    # DIVERSITY
+    # ========================================================
+
+    def _select_diverse(
+        self,
+        candidates: list[dict],
+        limit: int,
+        analysis: QueryAnalysis,
+    ) -> list[dict]:
+
+        if not candidates:
+            return []
+
+        selected = []
+
+        seen_chunks = set()
+        seen_cases = set()
+
+        for candidate in candidates:
+
+            chunk = self.chunk_key(
+                candidate
+            )
+
+            case = self.case_key(
+                candidate
+            )
+
+            if chunk in seen_chunks:
+                continue
+
+            if case in seen_cases:
+                continue
+
+            selected.append(candidate)
+
+            seen_chunks.add(chunk)
+            seen_cases.add(case)
+
+            if len(selected) >= limit:
+                return selected
+
+        for candidate in candidates:
+
+            chunk = self.chunk_key(
+                candidate
+            )
+
+            if chunk in seen_chunks:
+                continue
+
+            selected.append(candidate)
+            seen_chunks.add(chunk)
+
+            if len(selected) >= limit:
+                break
+
+        return selected
+
+    # ========================================================
+    # ENTITY GROUPING
+    # ========================================================
+
+    def _group_by_entity(
+        self,
+        hits: list[dict],
+    ) -> dict[str, list[dict]]:
+
+        grouped = defaultdict(list)
+
+        for hit in hits:
+
+            key = canonical_firm_name(
+                hit.get(
+                    "firm_normalized"
+                )
+                or hit.get("firm")
+                or ""
+            )
+
+            if key:
+                grouped[key].append(hit)
+
+        return dict(grouped)
+
+    # ========================================================
+    # COMPARISON SEARCH
+    # ========================================================
+
+    def _comparison_search(
+        self,
+        analysis: QueryAnalysis,
+    ) -> list[dict]:
+
+        all_candidates = []
+
+        # ----------------------------------------------------
+        # Resolved legal entities
+        # ----------------------------------------------------
+
+        if analysis.entities:
+
+            for entity in analysis.entities:
+
+                if analysis.years:
+
+                    for year in analysis.years:
+
+                        filters = {
+                            "firm_normalized": entity,
+                            "year": year,
+                        }
+
+                        query = (
+                            f"{analysis.question} "
+                            f"{entity} "
+                            f"{year} "
+                            "FCA Final Notice "
+                            "financial penalty fine "
+                            "breach failings misconduct"
+                        )
+
+                        all_candidates.extend(
+                            self._semantic_search(
+                                query,
+                                filters=filters,
+                                k=20,
+                            )
+                        )
+
+                        # Exact metadata fallback.
+                        for metadata_index, metadata in enumerate(
+                            self.store.metadata or []
+                        ):
+
+                            if not self._metadata_entity_matches(
+                                metadata,
+                                entity,
+                            ):
+                                continue
+
+                            if not self._metadata_year_matches(
+                                metadata,
+                                [year],
+                            ):
+                                continue
+
+                            item = {
+                                **metadata,
+                                "score": 0.0,
+                                "_metadata_index": metadata_index,
+                                "_retrieval_type":
+                                    "lexical-comparison",
+                            }
+
+                            all_candidates.append(item)
+
+                else:
+
+                    all_candidates.extend(
+                        self._semantic_search(
+                            analysis.search_question,
+                            filters={
+                                "firm_normalized": entity
+                            },
+                            k=30,
+                        )
+                    )
+
+            return self._merge_candidates(
+                analysis,
+                all_candidates,
+            )
+
+        # ----------------------------------------------------
+        # Ambiguous legal entities
+        # ----------------------------------------------------
+
+        if analysis.ambiguous_entities:
+
+            for entity in analysis.ambiguous_entities:
+
+                for year in (
+                    analysis.years or [None]
+                ):
+
+                    filters = {
+                        "firm_normalized": entity
+                    }
+
+                    if year is not None:
+                        filters["year"] = year
+
+                    query = (
+                        f"{analysis.question} "
+                        f"{entity} "
+                        f"{year or ''} "
+                        "FCA Final Notice "
+                        "financial penalty fine breach"
+                    )
+
+                    all_candidates.extend(
+                        self._semantic_search(
+                            query,
+                            filters=filters,
+                            k=12,
+                        )
+                    )
+
+            return self._merge_candidates(
+                analysis,
+                all_candidates,
+            )
+
+        # ----------------------------------------------------
+        # Generic comparison
+        # ----------------------------------------------------
+
+        if analysis.years:
+
+            all_candidates.extend(
+                self._semantic_search(
+                    analysis.search_question,
+                    filters={
+                        "years": analysis.years
+                    },
+                    k=40,
+                )
+            )
+
+        else:
+
+            all_candidates.extend(
+                self._semantic_search(
+                    analysis.search_question,
+                    k=40,
+                )
+            )
+
+        all_candidates.extend(
+            self._lexical_search(
+                analysis,
+                limit=100,
+            )
+        )
+
+        return self._merge_candidates(
+            analysis,
+            all_candidates,
+        )
+
+    # ========================================================
+    # COMMON ISSUES
+    # ========================================================
+
+    def _common_issue_search(
+        self,
+        analysis: QueryAnalysis,
+    ) -> list[dict]:
+
+        candidates = []
+
+        candidates.extend(
+            self._semantic_search(
+                analysis.search_question
+                + " financial crime "
+                + "systems controls "
+                + "failings breaches",
+                filters=(
+                    {"years": analysis.years}
+                    if analysis.years
+                    else None
+                ),
+                k=40,
+            )
+        )
+
+        candidates.extend(
+            self._lexical_search(
+                analysis,
+                limit=120,
+            )
+        )
+
+        merged = self._merge_candidates(
+            analysis,
+            candidates,
+        )
+
+        return self._select_diverse(
+            merged,
+            max(
+                8,
+                self.top_k * 3,
+            ),
+            analysis,
+        )
+
+    # ========================================================
+    # NORMAL SEARCH
+    # ========================================================
+
+    def _normal_search(
+        self,
+        analysis: QueryAnalysis,
+    ) -> list[dict]:
+
+        candidates = []
+
+        if analysis.entities:
+
+            for entity in analysis.entities:
+
+                filters = {
+                    "firm_normalized": entity
+                }
+
+                if analysis.years:
+
+                    if len(analysis.years) == 1:
+                        filters["year"] = (
+                            analysis.years[0]
+                        )
+                    else:
+                        filters["years"] = (
+                            analysis.years
+                        )
+
+                candidates.extend(
+                    self._semantic_search(
+                        analysis.search_question,
+                        filters=filters,
+                        k=30,
+                    )
+                )
+
+            candidates.extend(
+                self._lexical_search(
+                    analysis,
+                    limit=100,
+                )
+            )
+
+        elif analysis.ambiguous_entities:
+
+            for entity in analysis.ambiguous_entities:
+
+                filters = {
+                    "firm_normalized": entity
+                }
+
+                if analysis.years:
+
+                    if len(analysis.years) == 1:
+                        filters["year"] = (
+                            analysis.years[0]
+                        )
+                    else:
+                        filters["years"] = (
+                            analysis.years
+                        )
+
+                candidates.extend(
+                    self._semantic_search(
+                        analysis.search_question,
+                        filters=filters,
+                        k=25,
+                    )
+                )
+
+        else:
+
+            candidates.extend(
+                self._semantic_search(
+                    analysis.search_question,
+                    filters=(
+                        {
+                            "years": analysis.years
+                        }
+                        if analysis.years
+                        else None
+                    ),
+                    k=40,
+                )
+            )
+
+            candidates.extend(
+                self._lexical_search(
+                    analysis,
+                    limit=120,
+                )
+            )
+
+        return self._merge_candidates(
+            analysis,
+            candidates,
+        )
+
+    # ========================================================
+    # PUBLIC SEARCH
+    # ========================================================
+
+    def search(
+        self,
+        question: str,
+    ) -> list[dict]:
+
+        analysis = self.analyze_question(
             question
         )
 
@@ -578,569 +2199,125 @@ class Retriever:
 
         print(
             "Question:",
-            question,
+            analysis.question,
         )
 
         print(
             "Search question:",
-            search_question,
+            analysis.search_question,
         )
 
         print(
             "Entities:",
-            entities,
+            analysis.entities,
+        )
+
+        print(
+            "Ambiguous entities:",
+            analysis.ambiguous_entities,
         )
 
         print(
             "Years:",
-            years,
+            analysis.years,
+        )
+
+        print(
+            "Intent:",
+            analysis.intent,
         )
 
         print(
             "Comparison:",
-            comparison,
+            analysis.comparison,
         )
 
         print(
-            "Internal retrieval:",
-            retrieval_k,
+            "Common issues:",
+            analysis.common_issues,
         )
 
-        # =====================================================
-        # MULTI-ENTITY QUESTION
-        # =====================================================
+        print(
+            "======================================"
+        )
 
-        if (
-            comparison
-            and len(entities) >= 2
-        ):
+        if analysis.common_issues:
 
-            per_entity_k = max(
-                6,
-                retrieval_k // len(entities),
+            candidates = self._common_issue_search(
+                analysis
             )
 
-            entity_results = {}
+        elif analysis.comparison:
 
-            for entity in entities:
-
-                filters = {
-                    "firm_normalized": entity,
-                }
-
-                if len(years) == 1:
-                    filters["year"] = years[0]
-
-                elif len(years) > 1:
-                    filters["years"] = years
-
-                print(
-                    "\nSearching entity:",
-                    entity,
-                )
-
-                results = self.store.search(
-                    search_question,
-                    filters=filters,
-                    k=per_entity_k,
-                )
-
-                results = select_diverse_hits(
-                    question,
-                    results,
-                    per_entity_k,
-                )
-
-                entity_results[
-                    entity
-                ] = results
-
-            hits = []
-
-            # Guarantee at least one result from
-            # every detected entity.
-            for entity in entities:
-
-                results = entity_results.get(
-                    entity,
-                    [],
-                )
-
-                if results:
-                    hits.append(
-                        results[0]
-                    )
-
-            # Fill remaining slots globally.
-            remaining = []
-
-            for results in entity_results.values():
-
-                remaining.extend(
-                    results[1:]
-                )
-
-            remaining.sort(
-                key=lambda h: h.get(
-                    "_evidence_score",
-                    h.get("score", 0),
-                ),
-                reverse=True,
+            candidates = self._comparison_search(
+                analysis
             )
-
-            for hit in remaining:
-
-                if len(hits) >= target_k:
-                    break
-
-                if hit not in hits:
-                    hits.append(hit)
-
-        # =====================================================
-        # NORMAL QUESTION
-        # =====================================================
 
         else:
 
-            filters = {}
-
-            if len(years) == 1:
-                filters["year"] = years[0]
-
-            elif len(years) > 1:
-                filters["years"] = years
-
-            if len(entities) == 1:
-                filters[
-                    "firm_normalized"
-                ] = entities[0]
-
-            hits = self.store.search(
-                search_question,
-                filters=(
-                    filters
-                    if filters
-                    else None
-                ),
-                k=retrieval_k,
+            candidates = self._normal_search(
+                analysis
             )
 
-            hits = select_diverse_hits(
-                question,
-                hits,
-                target_k,
+        if analysis.common_issues:
+            limit = max(
+                8,
+                self.top_k * 3,
+            )
+        else:
+            limit = max(
+                3,
+                self.top_k,
             )
 
-        print(
-            "\n========== FINAL RETRIEVER HITS =========="
+        selected = self._select_diverse(
+            candidates,
+            limit,
+            analysis,
         )
 
         print(
-            "Hits:",
-            len(hits),
+            "\n========== RETRIEVER RESULTS =========="
+        )
+
+        print(
+            "Candidates:",
+            len(candidates),
+        )
+
+        print(
+            "Selected:",
+            len(selected),
         )
 
         for index, hit in enumerate(
-            hits,
-            1,
+            selected,
+            start=1,
         ):
 
             print(
-                f"{index}. "
-                f"{hit.get('firm')} | "
-                f"year={hit.get('year')} | "
-                f"page={hit.get('page')} | "
-                f"amount={hit.get('amount_text')} | "
-                f"semantic={hit.get('score')} | "
-                f"evidence={hit.get('_evidence_score')} "
+                f"[{index}]",
+                hit.get("firm"),
+                hit.get("year"),
+                "page=",
+                hit.get("page"),
+                "score=",
+                round(
+                    float(
+                        hit.get(
+                            "_evidence_score",
+                            hit.get(
+                                "score",
+                                0.0,
+                            ),
+                        )
+                    ),
+                    4,
+                ),
             )
 
         print(
-            "==========================================\n"
+            "========================================\n"
         )
 
-        return hits
-
-# import re
-# from app.core.config import settings
-# from app.rag.store import VectorStore
-
-
-# YEAR_RE = re.compile(r"\b(2024|2025|2026)\b")
-
-
-# # Map different ways users may mention a firm
-# # to the normalized value used by the metadata.
-# FIRM_ALIASES = {
-#     "barclays bank plc": "barclays",
-#     "barclays bank": "barclays",
-#     "barclays": "barclays",
-
-#     "nationwide building society": "nationwide",
-#     "nationwide": "nationwide",
-
-#     "monzo bank limited": "monzo",
-#     "monzo bank": "monzo",
-#     "monzo": "monzo",
-
-#     "metro bank plc": "metro bank",
-#     "metro bank": "metro bank",
-#     "metro": "metro bank",
-
-#     "starling bank limited": "starling",
-#     "starling bank": "starling",
-#     "starling": "starling",
-
-#     "hsbc uk bank plc": "hsbc",
-#     "hsbc uk": "hsbc",
-#     "hsbc bank": "hsbc",
-#     "hsbc": "hsbc",
-
-#     "tsb bank plc": "tsb",
-#     "tsb bank": "tsb",
-#     "tsb": "tsb",
-# }
-
-
-# COMPARISON_TERMS = [
-#     "compare",
-#     "comparison",
-#     "versus",
-#     "vs",
-#     "difference",
-#     "differences",
-#     "between",
-#     "both",
-#     "consecutive",
-# ]
-
-
-# def extract_firms(question: str):
-#     """
-#     Find ALL firms mentioned in the question.
-#     """
-
-#     lower = question.lower()
-#     found = []
-
-#     # Check longer names first
-#     aliases = sorted(
-#         FIRM_ALIASES.items(),
-#         key=lambda x: len(x[0]),
-#         reverse=True
-#     )
-
-#     for alias, canonical in aliases:
-#         if alias in lower and canonical not in found:
-#             found.append(canonical)
-
-#     return found
-
-
-# def extract_years(question: str):
-#     """
-#     Extract all years from the question.
-#     """
-
-#     return sorted(
-#         set(
-#             int(year)
-#             for year in YEAR_RE.findall(question)
-#         )
-#     )
-
-
-# def is_comparison_question(question: str, firms):
-#     """
-#     Detect comparison-style questions.
-#     """
-
-#     lower = question.lower()
-
-#     if len(firms) >= 2:
-#         return True
-
-#     return any(
-#         term in lower
-#         for term in COMPARISON_TERMS
-#     )
-
-
-# def extract_filters(question: str):
-#     """
-#     Build metadata filters for normal searches.
-#     """
-
-#     filters = {}
-
-#     years = extract_years(question)
-#     firms = extract_firms(question)
-
-#     # Year filter
-#     if len(years) == 1:
-#         filters["year"] = years[0]
-
-#     elif len(years) > 1:
-#         filters["years"] = years
-
-#     # Firm filter only when there is one firm.
-#     #
-#     # For multiple firms we search each firm separately
-#     # inside Retriever.search().
-#     if len(firms) == 1:
-#         filters["firm_normalized"] = firms[0]
-
-#     return filters
-
-
-# class Retriever:
-
-#     def __init__(self, store: VectorStore):
-#         self.store = store
-
-#     def search(self, question: str):
-
-#         filters = extract_filters(question)
-
-#         firms = extract_firms(question)
-#         years = extract_years(question)
-
-#         comparison = is_comparison_question(
-#             question,
-#             firms
-#         )
-
-#         # We want 3 final hits.
-#         target_k = settings.top_k
-
-#         print("\n========== RETRIEVER DEBUG ==========")
-#         print("Question:", question)
-#         print("Firms:", firms)
-#         print("Years:", years)
-#         print("Comparison:", comparison)
-#         print("Filters:", filters)
-#         print("Target hits:", target_k)
-
-#         # =====================================================
-#         # COMPARISON QUERY
-#         # =====================================================
-
-#         if comparison and len(firms) >= 2:
-
-#             # For 2 firms and target_k=3:
-#             #
-#             # Starling -> 2 internal hits
-#             # Monzo    -> 2 internal hits
-#             #
-#             # Then select exactly 3 final hits.
-#             internal_k = max(
-#                 1,
-#                 (target_k + len(firms) - 1) // len(firms)
-#             )
-
-#             by_firm = {}
-
-#             for firm in firms:
-
-#                 firm_filters = {}
-
-#                 # Preserve year filters
-#                 if len(years) == 1:
-#                     firm_filters["year"] = years[0]
-
-#                 elif len(years) > 1:
-#                     firm_filters["years"] = years
-
-#                 # Search this firm separately
-#                 firm_filters["firm_normalized"] = firm
-
-#                 print(
-#                     f"\n--- Searching firm: {firm} ---"
-#                 )
-
-#                 firm_hits = self.store.search(
-#                     question,
-#                     filters=firm_filters,
-#                     k=internal_k
-#                 )
-
-#                 print(
-#                     f"{firm}: {len(firm_hits)} hits"
-#                 )
-
-#                 by_firm[firm] = firm_hits
-
-#             # =================================================
-#             # BUILD FINAL 3 HITS
-#             # =================================================
-
-#             hits = []
-
-#             # First guarantee at least ONE result
-#             # from every requested firm.
-#             for firm in firms:
-
-#                 firm_hits = by_firm.get(
-#                     firm,
-#                     []
-#                 )
-
-#                 if firm_hits:
-#                     hits.append(
-#                         firm_hits[0]
-#                     )
-
-#             # Fill remaining slots.
-#             for firm in firms:
-
-#                 firm_hits = by_firm.get(
-#                     firm,
-#                     []
-#                 )
-
-#                 for candidate in firm_hits[1:]:
-
-#                     if len(hits) >= target_k:
-#                         break
-
-#                     hits.append(candidate)
-
-#                 if len(hits) >= target_k:
-#                     break
-
-#         # =====================================================
-#         # NORMAL QUERY
-#         # =====================================================
-
-#         else:
-
-#             hits = self.store.search(
-#                 question,
-#                 filters=filters or None,
-#                 k=target_k
-#             )
-
-#         # =====================================================
-#         # FINAL DEBUG
-#         # =====================================================
-
-#         print(
-#             "\n========== FINAL RETRIEVER HITS =========="
-#         )
-
-#         print(
-#             "Hits:",
-#             len(hits)
-#         )
-
-#         for i, h in enumerate(hits, 1):
-
-#             print(
-#                 f"{i}. "
-#                 f"{h.get('firm')} | "
-#                 f"year={h.get('year')} | "
-#                 f"amount={h.get('amount_text')} | "
-#                 f"page={h.get('page')} | "
-#                 f"url={h.get('url')}"
-#             )
-
-#         print(
-#             "==========================================\n"
-#         )
-
-#         return hits
-
-# # import re
-# # from app.core.config import settings
-# # from app.rag.store import VectorStore
-
-# # YEAR_RE = re.compile(r"\b(2024|2025|2026)\b")
-
-# # # def extract_filters(question: str) -> dict:
-# # #     filters = {}
-# # #     year = YEAR_RE.search(question)
-# # #     if year:
-# # #         filters["year"] = int(year.group(1))
-# # #     # Conservative company extraction: only use it for a small set of known examples.
-# # #     companies = ["Barclays", "Nationwide Building Society", "Monzo", "Metro Bank", "Starling Bank", "HSBC", "TSB Bank"]
-# # #     lower = question.lower()
-# # #     for c in companies:
-# # #         if c.lower() in lower:
-# # #             filters["firm_normalized"] = c.lower()
-# # #             break
-# # #     return filters
-
-# # def extract_filters(question: str) -> dict:
-# #     filters = {}
-
-# #     years = [int(y) for y in re.findall(r"\b(2024|2025|2026)\b", question)]
-
-# #     if len(years) == 1:
-# #         filters["year"] = years[0]
-# #     elif len(years) > 1:
-# #         filters["years"] = sorted(set(years))
-
-# #     companies = [
-# #         "Barclays",
-# #         "Nationwide Building Society",
-# #         "Monzo",
-# #         "Metro Bank",
-# #         "Starling Bank",
-# #         "HSBC",
-# #         "TSB Bank"
-# #     ]
-
-# #     lower = question.lower()
-
-# #     for c in companies:
-# #         if c.lower() in lower:
-# #             filters["firm_normalized"] = c.lower()
-# #             break
-
-# #     return filters
-
-# # # class Retriever:
-# # #     def __init__(self, store: VectorStore):
-# # #         self.store = store
-
-# # #     def search(self, question: str):
-# # #         filters = extract_filters(question)
-# # #         hits = self.store.search(question, filters=filters or None, k=settings.top_k)
-# # #         # Previous behavior searched without metadata filters when fewer than
-# # #         # two filtered results were found:
-# # #         # if len(hits) < 2 and filters:
-# # #         #     hits = self.store.search(question, filters=None, k=settings.top_k)
-# # #         return hits
-# # class Retriever:
-# #     def __init__(self, store: VectorStore):
-# #         self.store = store
-
-# #     def search(self, question: str):
-# #         filters = extract_filters(question)
-
-# #         print("\n========== RETRIEVER DEBUG ==========")
-# #         print("Question:", question)
-# #         print("Filters:", filters)
-
-# #         hits = self.store.search(
-# #             question,
-# #             filters=filters or None,
-# #             k=settings.top_k
-# #         )
-
-# #         print("Hits:", len(hits))
-
-# #         for i, h in enumerate(hits, 1):
-# #             print(
-# #                 f"{i}. {h.get('firm')} | "
-# #                 f"year={h.get('year')} | "
-# #                 f"amount={h.get('amount_text')} | "
-# #                 f"page={h.get('page')} | "
-# #                 f"url={h.get('url')}"
-# #             )
-
-# #         print("=====================================\n")
-
-# #         return hits
-
-    
+        return selected

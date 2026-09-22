@@ -1,959 +1,1333 @@
-import json
+from __future__ import annotations
+
 import re
-import threading
 import time
-from pathlib import Path
+from collections import defaultdict
+from typing import Any
 
 import requests
 
 from app.core.config import settings
-from app.rag.retriever import Retriever
-
-
-FALLBACK_MESSAGE = (
-    "I couldn't find enough relevant evidence in the indexed "
-    "FCA documents to answer that reliably."
-)
-
-
-SYSTEM_PROMPT = """You are an FCA enforcement research assistant.
-
-Use ONLY the FCA excerpts supplied below.
-
-Do not use outside knowledge.
-
-Do not invent:
-- fines
-- dates
-- firms
-- breaches
-- regulatory rules
-- regulatory findings
-- tribunal decisions
-
-Answer the user's question directly.
-
-For each factual claim, cite the supporting source using [S1], [S2], or [S3].
-
-For comparisons, clearly identify which evidence relates to which entity.
-
-If the supplied excerpts do not support an answer, say:
-
-"I couldn't find enough relevant evidence in the indexed FCA documents to answer that reliably."
-
-Keep the answer concise and under 100 words.
-"""
-
-
-OLLAMA_LOCK = threading.Lock()
-
-
-def load_metadata():
-    path = (
-        Path(__file__).resolve().parents[2]
-        / "data"
-        / "processed"
-        / "metadata.json"
-    )
-
-    if not path.exists():
-        return []
-
-    try:
-        return json.loads(
-            path.read_text(
-                encoding="utf-8"
-            )
-        )
-
-    except Exception as exc:
-        print(
-            "Metadata load error:",
-            exc,
-        )
-
-        return []
-
-
-def parse_amount(value):
-    if not value:
-        return None
-
-    cleaned = re.sub(
-        r"[^0-9.]",
-        "",
-        str(value),
-    )
-
-    try:
-        return float(cleaned)
-
-    except ValueError:
-        return None
-
-
-def find_largest_fine(
-    metadata,
-    year,
-):
-    rows = []
-
-    for item in metadata:
-
-        try:
-            item_year = int(
-                item.get("year")
-            )
-
-        except (
-            TypeError,
-            ValueError,
-        ):
-            continue
-
-        if item_year != year:
-            continue
-
-        amount = parse_amount(
-            item.get("amount_text")
-        )
-
-        if amount is None:
-            continue
-
-        rows.append(
-            {
-                "firm": item.get("firm"),
-                "amount": amount,
-                "amount_text": item.get(
-                    "amount_text"
-                ),
-                "url": item.get("url"),
-                "page": item.get("page"),
-                "title": item.get(
-                    "title",
-                    "FCA Final Notice",
-                ),
-            }
-        )
-
-    unique = {}
-
-    for row in rows:
-
-        key = (
-            row["firm"],
-            row["amount_text"],
-        )
-
-        unique[key] = row
-
-    if not unique:
-        return None
-
-    return max(
-        unique.values(),
-        key=lambda x: x["amount"],
-    )
-
-
-def is_largest_question(question):
-    return bool(
-        re.search(
-            r"\b("
-            r"largest|"
-            r"biggest|"
-            r"highest|"
-            r"maximum"
-            r")\b.*\bfine\b",
-            question.lower(),
-        )
-    )
-
-
-def extract_year(question):
-    match = re.search(
-        r"\b(19\d{2}|20\d{2})\b",
-        question,
-    )
-
-    if not match:
-        return None
-
-    return int(
-        match.group(1)
-    )
-
-
-def build_context(hits):
-    if not hits:
-        return ""
-
-    per_hit = max(
-        400,
-        settings.max_context_chars
-        // len(hits),
-    )
-
-    parts = []
-
-    for index, hit in enumerate(
-        hits,
-        1,
-    ):
-
-        text = (
-            hit.get("text")
-            or ""
-        ).strip()
-
-        text = text[:per_hit]
-
-        parts.append(
-            f"[S{index}]\n"
-            f"Firm: {hit.get('firm')}\n"
-            f"Year: {hit.get('year')}\n"
-            f"Page: {hit.get('page')}\n"
-            f"Source: {hit.get('url')}\n"
-            f"Evidence:\n{text}"
-        )
-
-    context = "\n\n".join(
-        parts
-    )
-
-    return context[
-        :settings.max_context_chars
-    ]
-
-
-def fallback_answer(
-    question,
-    hits,
-):
-    """
-    Deterministic fallback.
-
-    If Ollama times out, the application still returns
-    the actual retrieved FCA evidence instead of HTTP 500.
-    """
-
-    if not hits:
-        return FALLBACK_MESSAGE
-
-    lines = [
-        "The following FCA evidence was retrieved. "
-        "The local language model did not complete "
-        "the synthesis within the configured time limit:"
-    ]
-
-    for index, hit in enumerate(
-        hits,
-        1,
-    ):
-
-        text = (
-            hit.get("text")
-            or ""
-        ).strip()
-
-        # Keep fallback readable.
-        text = re.sub(
-            r"\s+",
-            " ",
-            text,
-        )
-
-        text = text[:500]
-
-        lines.append(
-            f"\n[S{index}] "
-            f"{hit.get('firm')} "
-            f"({hit.get('year')}, "
-            f"page {hit.get('page')}): "
-            f"{text}"
-        )
-
-    return "\n".join(
-        lines
-    )
 
 
 class RAGService:
 
     def __init__(
         self,
-        retriever: Retriever,
+        retriever,
     ):
         self.retriever = retriever
 
-        # Load once rather than reading the JSON
-        # for every question.
-        self.metadata = load_metadata()
+    # ============================================================
+    # TEXT HELPERS
+    # ============================================================
 
-    def answer(
+    @staticmethod
+    def _clean_text(
+        text: str,
+    ) -> str:
+
+        text = str(
+            text or ""
+        )
+
+        text = re.sub(
+            r"\s+",
+            " ",
+            text,
+        )
+
+        return text.strip()
+
+    @staticmethod
+    def _sentences(
+        text: str,
+    ) -> list[str]:
+
+        text = (
+            RAGService._clean_text(
+                text
+            )
+        )
+
+        if not text:
+            return []
+
+        parts = re.split(
+            r"(?<=[.!?])\s+",
+            text,
+        )
+
+        return [
+            part.strip()
+            for part in parts
+            if part.strip()
+        ]
+
+    # ============================================================
+    # EVIDENCE SENTENCE RELEVANCE
+    # ============================================================
+
+    def _sentence_score(
         self,
         question: str,
-    ):
+        sentence: str,
+    ) -> float:
 
-        started = time.perf_counter()
-
-        question = question.strip()
-
-        if not question:
-            return (
-                "Please enter a question.",
-                [],
-                0,
-            )
-
-        # =====================================================
-        # DETERMINISTIC AGGREGATION
-        # =====================================================
-
-        if is_largest_question(
-            question
-        ):
-
-            year = extract_year(
-                question
-            )
-
-            if year is not None:
-
-                largest = find_largest_fine(
-                    self.metadata,
-                    year,
-                )
-
-                if largest:
-
-                    answer = (
-                        f"{largest['firm']} "
-                        f"received the largest fine "
-                        f"in {year}, with a fine of "
-                        f"{largest['amount_text']}. [S1]"
-                    )
-
-                    sources = [
-                        {
-                            "title": largest[
-                                "title"
-                            ],
-                            "firm": largest[
-                                "firm"
-                            ],
-                            "year": year,
-                            "page": largest[
-                                "page"
-                            ],
-                            "url": largest[
-                                "url"
-                            ],
-                            "score": 1.0,
-                        }
-                    ]
-
-                    elapsed = (
-                        time.perf_counter()
-                        - started
-                    ) * 1000
-
-                    print(
-                        "\nSTRUCTURED RESULT:",
-                        answer,
-                    )
-
-                    return (
-                        answer,
-                        sources,
-                        elapsed,
-                    )
-
-        # =====================================================
-        # RETRIEVAL
-        # =====================================================
-
-        hits = self.retriever.search(
+        q = self.retriever.tokenize(
             question
         )
 
-        # Never throw away all evidence just because
-        # FAISS scores are slightly below a threshold.
-        #
-        # Retriever already performs candidate selection.
-        if not hits:
+        s = self.retriever.tokenize(
+            sentence
+        )
 
-            elapsed = (
-                time.perf_counter()
-                - started
-            ) * 1000
+        if not q or not s:
+            return 0.0
 
-            return (
-                FALLBACK_MESSAGE,
-                [],
-                elapsed,
+        overlap = len(
+            q & s
+        )
+
+        score = (
+            overlap
+            / max(
+                1,
+                len(q),
+            )
+        )
+
+        lower = sentence.lower()
+
+        # Enforcement language gets priority.
+
+        for term in (
+            "breached",
+            "breach",
+            "failed to",
+            "failings",
+            "misconduct",
+            "financial penalty",
+            "fined",
+            "principle",
+            "conduct rule",
+            "senior manager",
+            "individual conduct",
+            "decision notice",
+            "final notice",
+            "upper tribunal",
+            "step 1",
+            "step 2",
+            "step 3",
+        ):
+
+            if term in lower:
+                score += 0.12
+
+        return score
+
+    # ============================================================
+    # BUILD EVIDENCE
+    # ============================================================
+
+    def _build_evidence(
+        self,
+        question: str,
+        hit: dict,
+        max_chars: int = 1000,
+    ) -> str:
+
+        text = self._clean_text(
+            hit.get(
+                "text"
+            )
+            or ""
+        )
+
+        if not text:
+            return ""
+
+        sentences = (
+            self._sentences(
+                text
+            )
+        )
+
+        ranked = sorted(
+            (
+                (
+                    self._sentence_score(
+                        question,
+                        sentence,
+                    ),
+                    index,
+                    sentence,
+                )
+                for index, sentence
+                in enumerate(sentences)
+            ),
+            key=lambda item: (
+                item[0],
+                -item[1],
+            ),
+            reverse=True,
+        )
+
+        selected = []
+
+        length = 0
+
+        for _, _, sentence in ranked:
+
+            if (
+                length
+                + len(sentence)
+                > max_chars
+            ):
+                continue
+
+            selected.append(
+                sentence
             )
 
-        # =====================================================
-        # CONTEXT
-        # =====================================================
+            length += (
+                len(sentence)
+                + 1
+            )
 
-        context = build_context(
+            if length >= (
+                max_chars * 0.85
+            ):
+                break
+
+        if not selected:
+
+            return text[
+                :max_chars
+            ]
+
+        return " ".join(
+            selected
+        )
+
+    # ============================================================
+    # CONTEXT
+    # ============================================================
+
+    def _build_context(
+        self,
+        question: str,
+        hits: list[dict],
+    ) -> str:
+
+        blocks = []
+
+        for number, hit in enumerate(
+            hits,
+            start=1,
+        ):
+
+            firm = (
+                hit.get(
+                    "firm"
+                )
+                or hit.get(
+                    "firm_normalized"
+                )
+                or "Unknown firm"
+            )
+
+            year = (
+                hit.get(
+                    "year"
+                )
+                or ""
+            )
+
+            page = (
+                hit.get(
+                    "page"
+                )
+                or ""
+            )
+
+            evidence = (
+                self._build_evidence(
+                    question,
+                    hit,
+                    max_chars=950,
+                )
+            )
+
+            if not evidence:
+                continue
+
+            blocks.append(
+                (
+                    f"[S{number}] "
+                    f"{firm} "
+                    f"({year}, page {page})\n"
+                    f"{evidence}"
+                )
+            )
+
+        return "\n\n".join(
+            blocks
+        )
+
+    # ============================================================
+    # DETERMINISTIC LARGEST FINE
+    # ============================================================
+
+    @staticmethod
+    def _extract_amount(
+        text: str,
+    ) -> float | None:
+
+        if not text:
+            return None
+
+        # Handles examples such as:
+        #
+        # £44,078,500
+        # £44m
+        # £1.1 million
+        # £46,803,329.51
+
+        matches = re.findall(
+            r"£\s*"
+            r"([0-9][0-9,]*(?:\.[0-9]+)?)"
+            r"\s*"
+            r"(million|m|thousand|k)?",
+            text.lower(),
+        )
+
+        values = []
+
+        for number, multiplier in matches:
+
+            try:
+                value = float(
+                    number.replace(
+                        ",",
+                        "",
+                    )
+                )
+            except ValueError:
+                continue
+
+            if multiplier in (
+                "million",
+                "m",
+            ):
+                value *= 1_000_000
+
+            elif multiplier in (
+                "thousand",
+                "k",
+            ):
+                value *= 1_000
+
+            values.append(
+                value
+            )
+
+        if not values:
+            return None
+
+        return max(
+            values
+        )
+
+    def _largest_fine_answer(
+        self,
+        hits: list[dict],
+        year: int | None,
+    ) -> str | None:
+
+        candidates = []
+
+        for hit in hits:
+
+            text = self._clean_text(
+                hit.get(
+                    "text"
+                )
+                or ""
+            )
+
+            amount = (
+                self._extract_amount(
+                    text
+                )
+            )
+
+            if amount is None:
+                continue
+
+            candidates.append(
+                (
+                    amount,
+                    hit,
+                )
+            )
+
+        if not candidates:
+            return None
+
+        candidates.sort(
+            key=lambda item: item[0],
+            reverse=True,
+        )
+
+        amount, hit = (
+            candidates[0]
+        )
+
+        firm = (
+            hit.get(
+                "firm"
+            )
+            or hit.get(
+                "firm_normalized"
+            )
+            or "The firm"
+        )
+
+        display_amount = (
+            f"£{amount:,.2f}"
+            if amount % 1
+            else f"£{amount:,.0f}"
+        )
+
+        year_text = (
+            str(year)
+            if year
+            else str(
+                hit.get(
+                    "year"
+                )
+                or ""
+            )
+        )
+
+        return (
+            f"{firm} received the largest "
+            f"fine identified in the retrieved "
+            f"FCA evidence for {year_text}, "
+            f"with a fine of {display_amount}. "
+            f"[S1]"
+        )
+
+    # ============================================================
+    # CITATION VALIDATION
+    # ============================================================
+
+    @staticmethod
+    def _citation_numbers(
+        answer: str,
+    ) -> list[int]:
+
+        return [
+            int(value)
+            for value in re.findall(
+                r"\[S(\d+)\]",
+                answer or "",
+            )
+        ]
+
+    def _citations_valid(
+        self,
+        answer: str,
+        source_count: int,
+    ) -> bool:
+
+        numbers = (
+            self._citation_numbers(
+                answer
+            )
+        )
+
+        if not numbers:
+            return False
+
+        return all(
+            1 <= number <= source_count
+            for number in numbers
+        )
+
+    # ============================================================
+    # EVIDENCE QUALITY
+    # ============================================================
+
+    def _best_score(
+        self,
+        hits: list[dict],
+    ) -> float:
+
+        if not hits:
+            return 0.0
+
+        return max(
+            float(
+                hit.get(
+                    "_evidence_score",
+                    hit.get(
+                        "score",
+                        0.0,
+                    ),
+                )
+            )
+            for hit in hits
+        )
+
+    def _distinct_cases(
+        self,
+        hits: list[dict],
+    ) -> int:
+
+        cases = set()
+
+        for hit in hits:
+
+            cases.add(
+                (
+                    str(
+                        hit.get(
+                            "url"
+                        )
+                        or hit.get(
+                            "source_url"
+                        )
+                        or ""
+                    ),
+                    str(
+                        hit.get(
+                            "firm"
+                        )
+                        or ""
+                    ),
+                    str(
+                        hit.get(
+                            "year"
+                        )
+                        or ""
+                    ),
+                )
+            )
+
+        return len(
+            cases
+        )
+
+    def _coverage_score(
+        self,
+        question: str,
+        hits: list[dict],
+        analysis,
+    ) -> float:
+
+        if not hits:
+            return 0.0
+
+        score = 0.0
+
+        # Strong evidence.
+
+        best = self._best_score(
             hits
         )
 
-        prompt = (
-            f"{SYSTEM_PROMPT}\n\n"
-            f"USER QUESTION:\n"
-            f"{question}\n\n"
-            f"FCA EVIDENCE:\n"
-            f"{context}\n\n"
-            f"ANSWER:"
+        score += min(
+            0.45,
+            best * 0.60,
         )
 
-        print(
-            "\n========== OLLAMA DEBUG =========="
+        # Multiple independent cases.
+
+        cases = (
+            self._distinct_cases(
+                hits
+            )
         )
 
-        print(
-            "Model:",
-            settings.llm_model,
+        if cases >= 3:
+            score += 0.25
+
+        elif cases >= 2:
+            score += 0.18
+
+        elif cases >= 1:
+            score += 0.08
+
+        # Entity coverage.
+
+        if analysis.entities:
+
+            matched = 0
+
+            for entity in (
+                analysis.entities
+            ):
+
+                if any(
+                    self.retriever._metadata_entity_matches(
+                        hit,
+                        entity,
+                    )
+                    for hit in hits
+                ):
+                    matched += 1
+
+            score += (
+                0.25
+                * (
+                    matched
+                    / len(
+                        analysis.entities
+                    )
+                )
+            )
+
+        # Year coverage.
+
+        if analysis.years:
+
+            found_years = {
+                int(
+                    hit.get(
+                        "year"
+                    )
+                )
+                for hit in hits
+                if str(
+                    hit.get(
+                        "year"
+                    )
+                    or ""
+                ).isdigit()
+            }
+
+            coverage = (
+                len(
+                    found_years
+                    & set(
+                        analysis.years
+                    )
+                )
+                / len(
+                    analysis.years
+                )
+            )
+
+            score += (
+                0.25
+                * coverage
+            )
+
+        return min(
+            1.0,
+            score,
         )
 
-        print(
-            "Context characters:",
-            len(context),
+    # ============================================================
+    # GROUNDED FALLBACK
+    # ============================================================
+
+    def _fallback_answer(
+        self,
+        hits: list[dict],
+        reason: str | None = None,
+    ) -> str:
+
+        if not hits:
+
+            return (
+                "I couldn't find enough relevant "
+                "evidence in the indexed FCA documents "
+                "to answer that reliably."
+            )
+
+        lines = []
+
+        if reason:
+            lines.append(
+                reason
+            )
+
+        lines.append(
+            "The closest relevant FCA evidence I found is:"
         )
 
-        print(
-            "Prompt characters:",
-            len(prompt),
+        for index, hit in enumerate(
+            hits[:3],
+            start=1,
+        ):
+
+            firm = (
+                hit.get(
+                    "firm"
+                )
+                or hit.get(
+                    "firm_normalized"
+                )
+                or "Unknown firm"
+            )
+
+            year = (
+                hit.get(
+                    "year"
+                )
+                or ""
+            )
+
+            page = (
+                hit.get(
+                    "page"
+                )
+                or ""
+            )
+
+            evidence = (
+                self._build_evidence(
+                    hit.get(
+                        "text"
+                    )
+                    or "",
+                    hit,
+                    max_chars=500,
+                )
+            )
+
+            lines.append(
+                (
+                    f"[S{index}] "
+                    f"{firm} "
+                    f"({year}, page {page}): "
+                    f"{evidence}"
+                )
+            )
+
+        return "\n\n".join(
+            lines
         )
 
-        print(
-            "Evidence chunks:",
-            len(hits),
-        )
+    # ============================================================
+    # OLLAMA
+    # ============================================================
 
-        print(
-            "=================================="
-        )
-
-        # =====================================================
-        # LLM
-        # =====================================================
+    def _ollama_generate(
+        self,
+        prompt: str,
+    ) -> str:
 
         payload = {
             "model": settings.llm_model,
             "prompt": prompt,
             "stream": False,
             "options": {
-                "temperature": 0.0,
-                "num_predict": (
-                    settings.llm_num_predict
-                ),
-                "num_ctx": (
-                    settings.llm_num_ctx
-                ),
+                "temperature": 0,
+                "num_predict": settings.llm_num_predict,
+                "num_ctx": settings.llm_num_ctx,
             },
-            "keep_alive": (
-                settings.ollama_keep_alive
-            ),
+            "keep_alive": settings.ollama_keep_alive,
         }
 
-        llm_started = time.perf_counter()
+        response = requests.post(
+            f"{settings.ollama_url.rstrip('/')}/api/generate",
+            json=payload,
+            timeout=settings.llm_timeout_seconds,
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        return str(
+            data.get(
+                "response"
+            )
+            or ""
+        ).strip()
+
+    # ============================================================
+    # PROMPT
+    # ============================================================
+
+    def _build_prompt(
+        self,
+        question: str,
+        context: str,
+    ) -> str:
+
+        return f"""
+You are an FCA enforcement research assistant.
+
+Answer the user's question ONLY from the supplied FCA evidence.
+
+USER QUESTION:
+{question}
+
+FCA EVIDENCE:
+{context}
+
+STRICT RULES:
+
+1. Do not use outside knowledge.
+2. Do not invent facts.
+3. Do not infer a fact that is not supported by the evidence.
+4. Every factual claim must have one or more citations such as [S1].
+5. Use only the supplied source numbers.
+6. Do not create citations that do not exist.
+7. Keep separate legal entities separate.
+8. Do not merge firms merely because their names contain the same group or brand.
+9. If comparing years, explicitly distinguish the years.
+10. If comparing firms, explicitly distinguish the firms.
+11. For Principles, Conduct Rules, SMCR, ICR, DEPP, Decision Notices,
+    Final Notices and Tribunal matters, use the exact terminology
+    appearing in the evidence.
+12. If the evidence does not establish part of the requested answer,
+    explicitly say that the supplied FCA evidence does not establish it.
+13. Do not fill missing information with general knowledge.
+14. Prefer precise FCA wording over generic explanations.
+15. For "why" questions, explain the actual misconduct/failure,
+    not merely the regulatory guidance surrounding it.
+16. For "most common" questions, identify recurring issues only when
+    they are supported by multiple independent FCA cases.
+17. For numerical questions, preserve the exact amount when available.
+18. Keep the answer concise but complete.
+
+Return only the final answer.
+""".strip()
+
+    # ============================================================
+    # ANSWER
+    # ============================================================
+
+    def answer(
+        self,
+        question: str,
+    ) -> dict[str, Any]:
+
+        started = time.perf_counter()
+
+        question = str(
+            question or ""
+        ).strip()
+
+        if not question:
+
+            return {
+                "answer": (
+                    "Please provide a question."
+                ),
+                "sources": [],
+            }
+
+        # --------------------------------------------------------
+        # Analyze
+        # --------------------------------------------------------
+
+        analysis = (
+            self.retriever.analyze_question(
+                question
+            )
+        )
+
+        print(
+            "\n========== QUERY PLAN =========="
+        )
+
+        print(
+            "Type:",
+            analysis.intent.upper(),
+        )
+
+        print(
+            "Entities:",
+            analysis.entities,
+        )
+
+        print(
+            "Ambiguous entities:",
+            analysis.ambiguous_entities,
+        )
+
+        print(
+            "Years:",
+            analysis.years,
+        )
+
+        print(
+            "Common issues:",
+            analysis.common_issues,
+        )
+
+        print(
+            "Comparison:",
+            analysis.comparison,
+        )
+
+        print(
+            "================================"
+        )
+
+        # --------------------------------------------------------
+        # Retrieve
+        # --------------------------------------------------------
+
+        retrieval_started = (
+            time.perf_counter()
+        )
+
+        hits = (
+            self.retriever.search(
+                question
+            )
+        )
+
+        retrieval_ms = (
+            time.perf_counter()
+            - retrieval_started
+        ) * 1000
+
+        print(
+            f"Retrieval: {retrieval_ms:.0f} ms"
+        )
+
+        # --------------------------------------------------------
+        # No evidence
+        # --------------------------------------------------------
+
+        if not hits:
+
+            answer = (
+                self._fallback_answer(
+                    [],
+                )
+            )
+
+            total_ms = (
+                time.perf_counter()
+                - started
+            ) * 1000
+
+            return {
+                "answer": answer,
+                "sources": [],
+                "backend_ms": round(
+                    total_ms
+                ),
+                "generation_ms": 0,
+                "total_ms": round(
+                    total_ms
+                ),
+            }
+
+        # --------------------------------------------------------
+        # Deterministic largest-fine question
+        # --------------------------------------------------------
+
+        normalized_question = (
+            question.lower()
+        )
+
+        asks_largest = (
+            (
+                "largest fine"
+                in normalized_question
+            )
+            or (
+                "largest penalty"
+                in normalized_question
+            )
+            or (
+                "biggest fine"
+                in normalized_question
+            )
+        )
+
+        if asks_largest:
+
+            year = (
+                analysis.years[0]
+                if len(
+                    analysis.years
+                ) == 1
+                else None
+            )
+
+            deterministic = (
+                self._largest_fine_answer(
+                    hits,
+                    year,
+                )
+            )
+
+            if deterministic:
+
+                sources = (
+                    self._build_sources(
+                        hits[:1]
+                    )
+                )
+
+                total_ms = (
+                    time.perf_counter()
+                    - started
+                ) * 1000
+
+                return {
+                    "answer": deterministic,
+                    "sources": sources,
+                    "backend_ms": round(
+                        total_ms
+                    ),
+                    "generation_ms": 0,
+                    "total_ms": round(
+                        total_ms
+                    ),
+                }
+
+        # --------------------------------------------------------
+        # Evidence coverage
+        # --------------------------------------------------------
+
+        coverage = (
+            self._coverage_score(
+                question,
+                hits,
+                analysis,
+            )
+        )
+
+        best_score = (
+            self._best_score(
+                hits
+            )
+        )
+
+        print(
+            "Evidence coverage:",
+            round(
+                coverage,
+                3,
+            ),
+        )
+
+        print(
+            "Best evidence score:",
+            round(
+                best_score,
+                3,
+            ),
+        )
+
+        # --------------------------------------------------------
+        # Ambiguous comparison
+        # --------------------------------------------------------
+
+        if (
+            analysis.comparison
+            and analysis.ambiguous_entities
+            and not analysis.entities
+        ):
+
+            answer = (
+                self._fallback_answer(
+                    hits,
+                    reason=(
+                        "The question refers to an entity "
+                        "name that maps to multiple FCA legal "
+                        "entities in the indexed documents. "
+                        "I have kept those entities separate "
+                        "rather than combining their enforcement "
+                        "records."
+                    ),
+                )
+            )
+
+            total_ms = (
+                time.perf_counter()
+                - started
+            ) * 1000
+
+            return {
+                "answer": answer,
+                "sources": self._build_sources(
+                    hits[:3]
+                ),
+                "backend_ms": round(
+                    total_ms
+                ),
+                "generation_ms": 0,
+                "total_ms": round(
+                    total_ms
+                ),
+            }
+
+        # --------------------------------------------------------
+        # Evidence too weak
+        # --------------------------------------------------------
+
+        if (
+            best_score < 0.24
+            or coverage < 0.20
+        ):
+
+            answer = (
+                self._fallback_answer(
+                    hits,
+                    reason=(
+                        "The indexed FCA evidence is "
+                        "not sufficiently specific to "
+                        "support a reliable synthesized answer."
+                    ),
+                )
+            )
+
+            total_ms = (
+                time.perf_counter()
+                - started
+            ) * 1000
+
+            return {
+                "answer": answer,
+                "sources": self._build_sources(
+                    hits[:3]
+                ),
+                "backend_ms": round(
+                    total_ms
+                ),
+                "generation_ms": 0,
+                "total_ms": round(
+                    total_ms
+                ),
+            }
+
+        # --------------------------------------------------------
+        # Context
+        # --------------------------------------------------------
+
+        context_hits = hits
+
+        # Common questions need several cases.
+
+        if analysis.common_issues:
+
+            context_hits = hits[
+                :min(
+                    len(hits),
+                    8,
+                )
+            ]
+
+        else:
+
+            context_hits = hits[
+                :min(
+                    len(hits),
+                    5,
+                )
+            ]
+
+        context = (
+            self._build_context(
+                question,
+                context_hits,
+            )
+        )
+
+        if not context:
+
+            answer = (
+                self._fallback_answer(
+                    hits
+                )
+            )
+
+            total_ms = (
+                time.perf_counter()
+                - started
+            ) * 1000
+
+            return {
+                "answer": answer,
+                "sources": self._build_sources(
+                    hits[:3]
+                ),
+                "backend_ms": round(
+                    total_ms
+                ),
+                "generation_ms": 0,
+                "total_ms": round(
+                    total_ms
+                ),
+            }
+
+        # --------------------------------------------------------
+        # LLM
+        # --------------------------------------------------------
+
+        prompt = self._build_prompt(
+            question,
+            context,
+        )
+
+        generation_started = (
+            time.perf_counter()
+        )
 
         try:
 
-            with OLLAMA_LOCK:
-
-                response = requests.post(
-                    (
-                        f"{settings.ollama_url}"
-                        "/api/generate"
-                    ),
-                    json=payload,
-                    timeout=(
-                        settings.llm_timeout_seconds
-                    ),
+            generated = (
+                self._ollama_generate(
+                    prompt
                 )
-
-            response.raise_for_status()
-
-            data = response.json()
-
-            answer = (
-                data.get("response")
-                or ""
-            ).strip()
-
-            llm_elapsed = (
-                time.perf_counter()
-                - llm_started
-            ) * 1000
-
-            print(
-                f"Ollama generation: "
-                f"{llm_elapsed:.0f} ms"
             )
 
-            # Empty response = fallback.
-            if not answer:
-
-                print(
-                    "Ollama returned an empty answer."
-                )
-
-                answer = fallback_answer(
-                    question,
-                    hits,
-                )
-
-        except requests.exceptions.Timeout:
-
-            llm_elapsed = (
-                time.perf_counter()
-                - llm_started
-            ) * 1000
+        except Exception as exc:
 
             print(
-                f"Ollama timeout after "
-                f"{llm_elapsed:.0f} ms"
-            )
-
-            answer = fallback_answer(
-                question,
-                hits,
-            )
-
-        except requests.exceptions.RequestException as exc:
-
-            print(
-                "Ollama request error:",
+                "Ollama error:",
                 exc,
             )
 
-            answer = fallback_answer(
-                question,
-                hits,
+            generated = ""
+
+        generation_ms = (
+            time.perf_counter()
+            - generation_started
+        ) * 1000
+
+        # --------------------------------------------------------
+        # Validate generated answer
+        # --------------------------------------------------------
+
+        if not generated:
+
+            generated = (
+                self._fallback_answer(
+                    hits
+                )
             )
 
-        # =====================================================
-        # SOURCES
-        # =====================================================
+        elif not self._citations_valid(
+            generated,
+            len(
+                context_hits
+            ),
+        ):
 
-        sources = []
-
-        for hit in hits:
-
-            sources.append(
-                {
-                    "title": hit.get(
-                        "title",
-                        "FCA Final Notice",
-                    ),
-                    "firm": hit.get(
-                        "firm"
-                    ),
-                    "year": hit.get(
-                        "year"
-                    ),
-                    "page": hit.get(
-                        "page"
-                    ),
-                    "url": hit.get(
-                        "url"
-                    ),
-                    "score": hit.get(
-                        "score"
-                    ),
-                }
+            print(
+                "Citation validation failed. "
+                "Using grounded fallback."
             )
 
-        elapsed = (
+            generated = (
+                self._fallback_answer(
+                    hits
+                )
+            )
+
+        # --------------------------------------------------------
+        # Sources
+        # --------------------------------------------------------
+
+        sources = (
+            self._build_sources(
+                context_hits
+            )
+        )
+
+        total_ms = (
             time.perf_counter()
             - started
         ) * 1000
 
         print(
-            f"Total response: "
-            f"{elapsed:.0f} ms"
+            f"Generation: {generation_ms:.0f} ms"
         )
 
-        return (
-            answer,
-            sources,
-            elapsed,
+        print(
+            f"Total: {total_ms:.0f} ms"
         )
 
-
-# import json
-# import re
-# import time
-
-# import requests
-# import threading
-
-# from app.core.config import settings
-# from app.rag.retriever import Retriever
-
-
-# SYSTEM_PROMPT = """You are an FCA enforcement research assistant.
-
-# Answer using ONLY the supplied FCA document excerpts.
-
-# Do not use outside knowledge.
-
-# If the excerpts do not contain enough evidence, say:
-# "I couldn't find enough relevant evidence in the indexed FCA documents to answer that reliably."
-
-# Never invent a fine amount, date, firm, breach, or regulatory finding.
-
-# Cite factual claims using [S1], [S2], etc.
-
-# Keep answers concise but explain the reason for a fine when asked.
-
-# If the question asks for a comparison or common issues, synthesize only from
-# the supplied excerpts and make clear when the evidence is limited.
-# """
-
-# OLLAMA_LOCK = threading.Lock()
-
-
-# def find_largest_fine(metadata, year):
-#     """Find the largest fine for a specific year from structured metadata."""
-
-#     rows = []
-
-#     for item in metadata:
-#         try:
-#             if int(item.get("year")) != year:
-#                 continue
-#         except (TypeError, ValueError):
-#             continue
-
-#         amount_text = item.get("amount_text")
-
-#         if not amount_text:
-#             continue
-
-#         # Convert values such as:
-#         # £44,078,500
-#         # £1,107,306.92
-#         # into numeric values.
-#         cleaned = re.sub(r"[^0-9.]", "", str(amount_text))
-
-#         try:
-#             amount = float(cleaned)
-#         except ValueError:
-#             continue
-
-#         rows.append({
-#             "firm": item.get("firm"),
-#             "amount": amount,
-#             "amount_text": amount_text,
-#             "url": item.get("url"),
-#             "page": item.get("page"),
-#             "title": item.get("title", "FCA Final Notice"),
-#         })
-
-#     # Multiple chunks/pages can represent the same fine.
-#     # Keep only one record for each firm + fine amount.
-#     unique = {}
-
-#     for row in rows:
-#         key = (
-#             row["firm"],
-#             row["amount_text"]
-#         )
-#         unique[key] = row
-
-#     if not unique:
-#         return None
-
-#     return max(
-#         unique.values(),
-#         key=lambda x: x["amount"]
-#     )
-
-# def load_metadata():
-#     """Load the processed FCA metadata used by the RAG index."""
-
-#     from pathlib import Path
-
-#     metadata_path = (
-#         Path(__file__).resolve().parents[2]
-#         / "data"
-#         / "processed"
-#         / "metadata.json"
-#     )
-
-#     if not metadata_path.exists():
-#         print("Metadata file not found:", metadata_path)
-#         return []
-
-#     try:
-#         return json.loads(
-#             metadata_path.read_text(encoding="utf-8")
-#         )
-#     except Exception as exc:
-#         print("Metadata load error:", exc)
-#         return []
-
-# # def load_metadata():
-# #     """Load the processed FCA metadata used by the RAG index."""
-
-# #     metadata_path = settings.data_dir / "metadata.json"
-
-# #     if not metadata_path.exists():
-# #         return []
-
-# #     try:
-# #         return json.loads(
-# #             metadata_path.read_text(encoding="utf-8")
-# #         )
-# #     except Exception as exc:
-# #         print("Metadata load error:", exc)
-# #         return []
-
-
-# class RAGService:
-#     def __init__(self, retriever: Retriever):
-#         self.retriever = retriever
-
-#     def answer(self, question: str):
-#         response_started = time.perf_counter()
-
-#         # ---------------------------------------------------------
-#         # STRUCTURED AGGREGATION
-#         # ---------------------------------------------------------
-#         # Questions asking for the largest fine should be answered
-#         # from all indexed metadata, not semantic top-k retrieval.
-#         # ---------------------------------------------------------
-
-#         largest_match = re.search(
-#             r"\b(largest|biggest|highest|max(?:imum)?)\b.*\bfine\b",
-#             question.lower()
-#         )
-
-#         year_match = re.search(
-#             r"\b(2024|2025|2026)\b",
-#             question
-#         )
-
-#         if largest_match and year_match:
-#             year = int(year_match.group(1))
-
-#             metadata = load_metadata()
-
-#             largest = find_largest_fine(
-#                 metadata,
-#                 year
-#             )
-
-#             if largest:
-#                 answer = (
-#                     f"{largest['firm']} received the largest fine in "
-#                     f"{year}, with a fine of {largest['amount_text']}. [S1]"
-#                 )
-
-#                 sources = [{
-#                     "title": largest["title"],
-#                     "firm": largest["firm"],
-#                     "year": year,
-#                     "page": largest["page"],
-#                     "url": largest["url"],
-#                     "score": 1.0
-#                 }]
-
-#                 response_duration_ms = (
-#                     time.perf_counter() - response_started
-#                 ) * 1000
-
-#                 print("\n========== STRUCTURED AGGREGATION ==========")
-#                 print("Question:", question)
-#                 print("Year:", year)
-#                 print("Largest firm:", largest["firm"])
-#                 print("Largest fine:", largest["amount_text"])
-#                 print("============================================\n")
-
-#                 return (
-#                     answer,
-#                     sources,
-#                     response_duration_ms
-#                 )
-
-#         # ---------------------------------------------------------
-#         # NORMAL RAG FLOW
-#         # ---------------------------------------------------------
-
-#         hits = self.retriever.search(question)
-
-#         hits = [
-#             h for h in hits
-#             if h["score"] >= settings.min_relevance
-#         ]
-
-#         if not hits:
-#             response_duration_ms = (
-#                 time.perf_counter() - response_started
-#             ) * 1000
-
-#             return (
-#                 "I couldn't find enough relevant evidence in the indexed "
-#                 "FCA documents to answer that reliably.",
-#                 [],
-#                 response_duration_ms
-#             )
-
-#                 # ---------------------------------------------------------
-#         # BUILD COMPACT CONTEXT
-#         # ---------------------------------------------------------
-
-#         # Divide the total context budget across retrieved sources.
-#         per_hit_chars = max(
-#             500,
-#             settings.max_context_chars // len(hits)
-#         )
-
-#         context_parts = []
-
-#         for i, h in enumerate(hits, 1):
-#             text = (h.get("text") or "").strip()
-
-#             text = text[:per_hit_chars]
-
-#             context_parts.append(
-#                 f"[S{i}] Firm: {h.get('firm')} | "
-#                 f"Year: {h.get('year')} | "
-#                 f"Page: {h.get('page')}\n"
-#                 f"{text}"
-#             )
-
-#         context = "\n\n".join(context_parts)
-
-#         # Absolute safety limit.
-#         context = context[:settings.max_context_chars]
-
-#         # context_parts = []
-
-#         # per_hit_chars = max(
-#         #     settings.max_context_chars // len(hits),
-#         #     1200
-#         # )
-
-#         # for i, h in enumerate(hits, 1):
-#         #     text = h["text"][:per_hit_chars]
-
-#         #     context_parts.append(
-#         #         f"[S{i}] Firm: {h.get('firm')} | "
-#         #         f"Year: {h.get('year')} | "
-#         #         f"Page: {h.get('page')} | "
-#         #         f"URL: {h.get('url')}\n"
-#         #         f"{text}"
-#         #     )
-
-#         # context = "\n\n".join(context_parts)
-
-#         prompt = (
-#             f"{SYSTEM_PROMPT}\n\n"
-#             f"Question: {question}\n\n"
-#             f"FCA excerpts:\n{context}"
-#         )
-
-#         print("\n========== OLLAMA DEBUG ==========")
-#         print("Model:", settings.llm_model)
-#         print("Context characters:", len(context))
-#         print("Prompt characters:", len(prompt))
-#         print("Number of hits:", len(hits))
-#         print("==================================\n")
-
-#         llm_started = time.perf_counter()
-
-#         # response = requests.post(
-#         #     f"{settings.ollama_url}/api/generate",
-#         #     json={
-#         #         "model": settings.llm_model,
-#         #         "prompt": prompt,
-#         #         "stream": False,
-#         #         "options": {
-#         #             "temperature": 0.1,
-#         #             "num_predict": settings.llm_num_predict,
-#         #             "num_ctx": settings.llm_num_ctx
-#         #         },
-#         #         "keep_alive": settings.ollama_keep_alive,
-#         #     },
-#         #     timeout=settings.llm_timeout_seconds
-#         # )
-#         payload = {
-#             "model": settings.llm_model,
-#             "prompt": prompt,
-#             "stream": False,
-#             "options": {
-#                 "temperature": 0.1,
-#                 "num_predict": settings.llm_num_predict,
-#                 "num_ctx": settings.llm_num_ctx,
-#             },
-#             "keep_alive": settings.ollama_keep_alive,
-#         }
-
-#         with OLLAMA_LOCK:
-#             response = requests.post(
-#                 f"{settings.ollama_url}/api/generate",
-#                 json=payload,
-#                 timeout=settings.llm_timeout_seconds,
-#             )
-#         response.raise_for_status()
-
-#         llm_duration_ms = (time.perf_counter() - llm_started) * 1000
-
-#         print(
-#             f"Ollama generation: {llm_duration_ms:.0f} ms"
-#         )
-#         # response = requests.post(
-#         #     f"{settings.ollama_url}/api/generate",
-#         #     json={
-#         #         "model": settings.llm_model,
-#         #         "prompt": prompt,
-#         #         "stream": False,
-#         #         "options": {
-#         #             "temperature": 0,
-#         #             "num_predict": settings.llm_num_predict,
-#         #             "num_ctx": settings.llm_num_ctx
-#         #         },
-#         #         "keep_alive": settings.ollama_keep_alive,
-#         #     },
-#         #     timeout=settings.llm_timeout_seconds
-#         # )
-
-#         # response.raise_for_status()
-
-#         data = response.json()
-
-#         answer = data.get(
-#             "response",
-#             "No answer generated."
-#         )
-
-#         sources = []
-
-#         for h in hits:
-#             sources.append({
-#                 "title": h.get("title", "FCA Final Notice"),
-#                 "firm": h.get("firm"),
-#                 "year": h.get("year"),
-#                 "page": h.get("page"),
-#                 "url": h.get("url"),
-#                 "score": h.get("score")
-#             })
-
-#         response_duration_ms = (
-#             time.perf_counter() - response_started
-#         ) * 1000
-
-#         return (
-#             answer,
-#             sources,
-#             response_duration_ms
-#         )
+        return {
+            "answer": generated,
+            "sources": sources,
+            "backend_ms": round(
+                retrieval_ms
+            ),
+            "generation_ms": round(
+                generation_ms
+            ),
+            "total_ms": round(
+                total_ms
+            ),
+        }
+
+    # ============================================================
+    # SOURCES
+    # ============================================================
+
+    @staticmethod
+    def _build_sources(
+                hits: list[dict],
+            ) -> list[dict]:
+
+                sources = []
+
+                for index, hit in enumerate(
+                    hits,
+                    start=1,
+                ):
+                    firm = (
+                        hit.get("firm")
+                        or hit.get("firm_normalized")
+                        or "Unknown firm"
+                    )
+
+                    year = hit.get("year") or ""
+                    page = hit.get("page") or ""
+
+                    url = (
+                        hit.get("url")
+                        or hit.get("source_url")
+                        or ""
+                    )
+
+                    # Use an existing title when available.
+                    # Otherwise create a deterministic title from
+                    # the indexed FCA metadata.
+                    title = (
+                        hit.get("title")
+                        or hit.get("document_title")
+                        or hit.get("name")
+                        or ""
+                    )
+
+                    if not title:
+                        if page:
+                            title = (
+                                f"{firm} - FCA Final Notice "
+                                f"({year}, page {page})"
+                            )
+                        else:
+                            title = (
+                                f"{firm} - FCA Final Notice "
+                                f"({year})"
+                            )
+
+                    sources.append(
+                        {
+                            "id": f"S{index}",
+                            "title": str(title),
+                            "firm": str(firm),
+                            "year": year,
+                            "page": page,
+                            "url": url,
+                        }
+                    )
+
+                return sources
