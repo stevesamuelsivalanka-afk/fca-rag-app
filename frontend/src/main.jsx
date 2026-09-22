@@ -4,7 +4,7 @@ import React, { useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
 
-const API = import.meta.env.VITE_API_URL || 'https://combinations-landscapes-featuring-instructional.trycloudflare.com';
+const API = import.meta.env.VITE_API_URL || '';
 
 const examples = [
   'Why was Barclays fined in 2025?',
@@ -39,11 +39,20 @@ function App() {
     requestInFlight.current = true;
     setLoading(true);
 
+    const assistantId = `assistant-${Date.now()}-${Math.random()}`;
+
     setMessages((m) => [
       ...m,
       {
         role: 'user',
         text: trimmed,
+      },
+      {
+        id: assistantId,
+        role: 'assistant',
+        text: '',
+        sources: [],
+        streaming: true,
       },
     ]);
 
@@ -52,7 +61,7 @@ function App() {
     const clientStarted = performance.now();
 
     try {
-      const response = await fetch(`${API}/api/ask`, {
+      const response = await fetch(`${API}/api/ask/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -62,34 +71,97 @@ function App() {
         }),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.detail || 'Request failed');
+        let detail = 'Request failed';
+        try {
+          const data = await response.json();
+          detail = data.detail || detail;
+        } catch {
+          // Keep the generic error when the server didn't return JSON.
+        }
+        throw new Error(detail);
       }
 
-      setMessages((m) => [
-        ...m,
-        {
-          role: 'assistant',
-          text: data.answer,
-          sources: data.sources || [],
-          request_duration_ms: data.request_duration_ms,
-          response_duration_ms: data.response_duration_ms,
-          client_duration_ms: performance.now() - clientStarted,
-        },
-      ]);
+      if (!response.body) {
+        throw new Error('The server did not provide a response stream.');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let completed = false;
+
+      function applyEvent(event) {
+        if (event.type === 'token') {
+          setMessages((current) => current.map((message) => (
+            message.id === assistantId
+              ? { ...message, text: message.text + event.text }
+              : message
+          )));
+          return;
+        }
+
+        if (event.type === 'complete') {
+          const data = event.data;
+          completed = true;
+          setMessages((current) => current.map((message) => (
+            message.id === assistantId
+              ? {
+                  ...message,
+                  text: data.answer,
+                  sources: data.sources || [],
+                  request_duration_ms: data.request_duration_ms,
+                  response_duration_ms: data.response_duration_ms,
+                  client_duration_ms: performance.now() - clientStarted,
+                  streaming: false,
+                }
+              : message
+          )));
+          return;
+        }
+
+        if (event.type === 'error') {
+          throw new Error(event.detail || 'The answer stream ended unexpectedly.');
+        }
+      }
+
+      function consumeLines(final = false) {
+        const lines = buffer.split('\n');
+        buffer = final ? '' : lines.pop();
+        for (const line of lines) {
+          if (line.trim()) {
+            applyEvent(JSON.parse(line));
+          }
+        }
+        if (final && buffer.trim()) {
+          applyEvent(JSON.parse(buffer));
+          buffer = '';
+        }
+      }
+
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+        consumeLines(done);
+        if (done) break;
+      }
+
+      if (!completed) {
+        throw new Error('The answer stream ended before completion.');
+      }
     } catch (error) {
       console.error('API request failed:', error);
 
-      setMessages((m) => [
-        ...m,
-        {
-          role: 'assistant',
-          text:
-            'Sorry, I could not answer that request. Please check that the backend is running and indexed.',
-        },
-      ]);
+      setMessages((current) => current.map((message) => (
+        message.id === assistantId
+          ? {
+              ...message,
+              text: 'Sorry, I could not answer that request. Please check that the backend is running and indexed.',
+              sources: [],
+              streaming: false,
+            }
+          : message
+      )));
     } finally {
       requestInFlight.current = false;
       setLoading(false);
@@ -174,11 +246,12 @@ function App() {
 
                 {message.sources.map((source, sourceIndex) => (
                   <a
-                    key={sourceIndex}
+                    key={source.source_id || sourceIndex}
                     href={source.url}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
+                    {source.citation ? `[${source.citation}] ` : ''}
                     {source.firm || source.title} · {source.year} · p.
                     {source.page || '—'}
                   </a>
@@ -191,7 +264,9 @@ function App() {
         {loading && (
           <div className="msg assistant">
             <div className="bubble">
-              Searching FCA documents…
+              {messages.some((message) => message.role === 'assistant' && message.streaming && message.text)
+                ? 'Generating answer…'
+                : 'Searching FCA documents…'}
             </div>
           </div>
         )}
